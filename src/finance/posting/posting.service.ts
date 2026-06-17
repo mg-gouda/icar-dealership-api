@@ -1,71 +1,331 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
+const VAT_RATE = 0.14;
+
 /**
- * All GL postings go through this service. Never create JournalEntry rows directly
- * from other modules — always call PostingService so audit and validation are consistent.
+ * All GL postings go through this service -- never create JournalEntry rows
+ * directly from other modules. Enforces audit + fiscal-period validation.
  */
 @Injectable()
 export class PostingService {
   constructor(private prisma: PrismaService) {}
 
-  /**
-   * Finalize a deal: create customer invoice (draft), vehicle COGS entry,
-   * and update vehicle status to SOLD. Must be called inside a transaction.
-   * Spec: Project_Docs/03-backend-api-spec.md, 06-egypt-financing-spec.md
-   */
-  async finalizeDeal(_dealId: string, _userId: string): Promise<void> {
-    // TODO: implement per spec §Deal Finalize flow
-    // 1. Load deal + vehicle + location + fees
-    // 2. Create Invoice (CUSTOMER_INVOICE, DRAFT) with lines: vehicle, admin fee, insurance fee
-    // 3. Post invoice → create JournalEntry (SALE journal, POSTED)
-    //    DR: AR 1300 / CR: Vehicle Sales Income 4100 + VAT 2200
-    // 4. Post COGS → create JournalEntry (GENERAL journal, POSTED)
-    //    DR: COGS-Vehicle 5100 / CR: Vehicle Inventory 1400/1410
-    // 5. vehicle.status → SOLD
-    // 6. deal.status → FINALIZED
-    throw new Error('PostingService.finalizeDeal not yet implemented');
+  // -- Deal Finalize --
+
+  async finalizeDeal(dealId: string, userId: string): Promise<void> {
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id: dealId },
+      include: {
+        vehicle: true,
+        location: {
+          include: {
+            journals: true,
+            analyticAccount: true,
+          },
+        },
+        customer: true,
+        commissions: true,
+      },
+    });
+
+    // Vehicle has no companyId → get from location.company via journal
+    const saleJournal = deal.location.journals.find((j) => j.type === 'SALE');
+    const generalJournal = deal.location.journals.find((j) => j.type === 'GENERAL');
+    if (!saleJournal || !generalJournal) {
+      throw new BadRequestException('Location is missing SALE or GENERAL journal. Run seed first.');
+    }
+
+    const companyId = saleJournal.companyId;
+    const now = new Date();
+    await this.assertFiscalPeriodOpen(now, companyId);
+
+    const accounts = await this.resolveAccounts(companyId, [
+      '1300', '4100', '4210', '4220', '2200', '5100', '1400', '1410',
+    ]);
+
+    const salePrice = Number(deal.salePrice);
+    const adminFee = Number(deal.adminFee ?? 0);
+    const insuranceFee = Number(deal.insuranceFee ?? 0);
+    const vehicleCost = Number(deal.vehicle.cost ?? 0);
+
+    // VAT applies only on salePrice per Egypt spec (admin fee + insurance exempt)
+    const vatAmount = Math.round(salePrice * VAT_RATE * 100) / 100;
+    const totalAR = salePrice + vatAmount + adminFee + insuranceFee;
+
+    const analyticAccountId = deal.location.analyticAccount?.id;
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Invoice GL entry (SALE journal)
+      // DR: AR 1300 / CR: Vehicle Sales Income 4100 + VAT Payable 2200 + Admin Fee 4210 + Insurance 4220
+      const saleLines = [
+        { accountId: accounts['1300'], debit: totalAR, credit: 0, label: `AR - Deal ${dealId}`, analyticAccountId },
+        { accountId: accounts['4100'], debit: 0, credit: salePrice, label: 'Vehicle Sales Income', analyticAccountId },
+        ...(vatAmount > 0 ? [{ accountId: accounts['2200'], debit: 0, credit: vatAmount, label: 'VAT 14%', analyticAccountId }] : []),
+        ...(adminFee > 0 ? [{ accountId: accounts['4210'], debit: 0, credit: adminFee, label: 'Admin Fee', analyticAccountId }] : []),
+        ...(insuranceFee > 0 ? [{ accountId: accounts['4220'], debit: 0, credit: insuranceFee, label: 'Compulsory Insurance', analyticAccountId }] : []),
+      ];
+
+      await tx.journalEntry.create({
+        data: {
+          journalId: saleJournal.id,
+          date: now,
+          ref: `SALE-${dealId.slice(-8).toUpperCase()}`,
+          status: 'POSTED',
+          lines: {
+            create: saleLines,
+          },
+        },
+      });
+
+      // 2. COGS entry (GENERAL journal)
+      // DR: COGS-Vehicle 5100 / CR: Vehicle Inventory 1400 or 1410
+      if (vehicleCost > 0) {
+        // ponytail: no `condition` field on Vehicle; use inventory account 1400
+        await tx.journalEntry.create({
+          data: {
+            journalId: generalJournal.id,
+            date: now,
+            ref: `COGS-${dealId.slice(-8).toUpperCase()}`,
+            status: 'POSTED',
+            lines: {
+              create: [
+                { accountId: accounts['5100'], debit: vehicleCost, credit: 0, label: 'COGS - Vehicle', analyticAccountId },
+                { accountId: accounts['1400'], debit: 0, credit: vehicleCost, label: 'Vehicle Inventory', analyticAccountId },
+              ],
+            },
+          },
+        });
+      }
+
+      // 3. Update vehicle status -> SOLD
+      await tx.vehicle.update({ where: { id: deal.vehicleId }, data: { status: 'SOLD' } });
+
+      // 4. Update deal status -> FINALIZED
+      await tx.deal.update({
+        where: { id: dealId },
+        data: { status: 'FINALIZED' },
+      });
+
+      // 5. Accrue commissions (per commission records already on deal)
+      for (const commission of deal.commissions) {
+        if (commission.status !== 'ACCRUED') continue;
+        await this.accrueCommission(commission.id, userId, tx as any, companyId, generalJournal.id, accounts, analyticAccountId);
+      }
+    });
   }
 
-  /**
-   * Post a dealership installment payment line.
-   * Spec: Project_Docs/06-egypt-financing-spec.md §Installment GL posting
-   */
-  async postInstallment(_installmentLineId: string, _userId: string): Promise<void> {
-    // TODO: implement per spec
-    // DR: Cash/Bank / CR: Installment Payments Received (principal) + Interest Income
-    throw new Error('PostingService.postInstallment not yet implemented');
+  // -- Installment Payment --
+
+  async postInstallment(installmentLineId: string, userId: string): Promise<void> {
+    const line = await this.prisma.installmentLine.findUniqueOrThrow({
+      where: { id: installmentLineId },
+      include: {
+        installmentPlan: {
+          include: {
+            deal: {
+              include: {
+                location: { include: { journals: true, analyticAccount: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const deal = line.installmentPlan.deal;
+    const cashJournal = deal.location.journals.find((j) => j.type === 'CASH' || j.type === 'BANK');
+    if (!cashJournal) throw new BadRequestException('No CASH/BANK journal on location');
+
+    const companyId = cashJournal.companyId;
+    const now = new Date();
+    await this.assertFiscalPeriodOpen(now, companyId);
+
+    const accounts = await this.resolveAccounts(companyId, ['2500', '4300', '1300']);
+    const analyticAccountId = deal.location.analyticAccount?.id;
+
+    const principal = Number(line.principalPortion);
+    const interest = Number(line.interestPortion);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.journalEntry.create({
+        data: {
+          journalId: cashJournal.id,
+          date: now,
+          ref: `INST-${installmentLineId.slice(-8).toUpperCase()}`,
+          status: 'POSTED',
+          lines: {
+            create: [
+              { accountId: accounts['1300'], debit: 0, credit: Number(line.totalDue), label: 'Clear AR', analyticAccountId },
+              { accountId: accounts['2500'], debit: principal, credit: 0, label: 'Installment Principal Received', analyticAccountId },
+              ...(interest > 0 ? [{ accountId: accounts['4300'], debit: interest, credit: 0, label: 'Interest Income', analyticAccountId }] : []),
+            ],
+          },
+        },
+      });
+
+      await tx.installmentLine.update({
+        where: { id: installmentLineId },
+        data: { status: 'PAID', paidAmount: Number(line.totalDue), paidDate: now },
+      });
+    });
   }
 
-  /**
-   * Post bank financing disbursement (shortfall or overage).
-   * Spec: Project_Docs/06-egypt-financing-spec.md §Bank Financing GL posting
-   */
-  async postBankDisbursement(_dealId: string, _userId: string): Promise<void> {
-    // TODO: implement per spec
-    throw new Error('PostingService.postBankDisbursement not yet implemented');
+  // -- Bank Financing Disbursement --
+
+  async postBankDisbursement(dealId: string, userId: string): Promise<void> {
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id: dealId },
+      include: {
+        financeApplication: { include: { bankApproval: true } },
+        location: { include: { journals: true, analyticAccount: true } },
+      },
+    });
+
+    const bankApproval = deal.financeApplication?.bankApproval;
+    if (!bankApproval) throw new BadRequestException('No bank approval record on deal');
+
+    const bankJournal = deal.location.journals.find((j) => j.type === 'BANK');
+    if (!bankJournal) throw new BadRequestException('No BANK journal on location');
+
+    const companyId = bankJournal.companyId;
+    const now = new Date();
+    await this.assertFiscalPeriodOpen(now, companyId);
+
+    const accounts = await this.resolveAccounts(companyId, ['1200', '1300', '2600']);
+    const analyticAccountId = deal.location.analyticAccount?.id;
+
+    const approvedAmount = Number(bankApproval.approvedAmount);
+    const saleTotal = Number(deal.salePrice) * (1 + VAT_RATE) + Number(deal.adminFee ?? 0) + Number(deal.insuranceFee ?? 0);
+    const shortfall = saleTotal - approvedAmount;
+
+    // DR: Bank 1200 (approved amount) + DR: Bank Financing Liability 2600 (shortfall if any) / CR: AR 1300
+    const lines: Array<{ accountId: string; debit: number; credit: number; label: string; analyticAccountId?: string }> = [
+      { accountId: accounts['1200'], debit: approvedAmount, credit: 0, label: 'Bank disbursement received', analyticAccountId },
+      { accountId: accounts['1300'], debit: 0, credit: saleTotal, label: 'Clear AR', analyticAccountId },
+    ];
+    if (shortfall > 0) {
+      lines.push({ accountId: accounts['2600'], debit: shortfall, credit: 0, label: 'Bank financing shortfall', analyticAccountId });
+    } else if (shortfall < 0) {
+      lines.push({ accountId: accounts['2600'], debit: 0, credit: Math.abs(shortfall), label: 'Bank financing overage', analyticAccountId });
+    }
+
+    await this.prisma.journalEntry.create({
+      data: {
+        journalId: bankJournal.id,
+        date: now,
+        ref: `BANK-${dealId.slice(-8).toUpperCase()}`,
+        status: 'POSTED',
+        lines: { create: lines },
+      },
+    });
   }
 
-  /**
-   * Accrue commission at deal finalize.
-   * DR: Sales Commission Expense 6100 / CR: Commissions Payable 2400
-   * Spec: Project_Docs/10-sales-commission-spec.md
-   */
-  async accrueCommission(_dealCommissionId: string, _userId: string): Promise<void> {
-    // TODO: implement per spec
-    throw new Error('PostingService.accrueCommission not yet implemented');
+  // -- Commission Accrual --
+
+  async accrueCommission(
+    dealCommissionId: string,
+    userId: string,
+    tx?: any,
+    companyId?: string,
+    journalId?: string,
+    accounts?: Record<string, string>,
+    analyticAccountId?: string,
+  ): Promise<void> {
+    const db = tx ?? this.prisma;
+    const now = new Date();
+
+    if (!accounts || !journalId) {
+      const commission = await this.prisma.dealCommission.findUniqueOrThrow({
+        where: { id: dealCommissionId },
+        include: {
+          deal: {
+            include: {
+              location: { include: { journals: true, analyticAccount: true } },
+            },
+          },
+        },
+      });
+      const generalJournal = commission.deal.location.journals.find((j) => j.type === 'GENERAL');
+      if (!generalJournal) throw new BadRequestException('No GENERAL journal on location');
+      companyId = generalJournal.companyId;
+      journalId = generalJournal.id;
+      accounts = await this.resolveAccounts(companyId!, ['6100', '2400']);
+      analyticAccountId = commission.deal.location.analyticAccount?.id;
+    }
+
+    const commission = await this.prisma.dealCommission.findUniqueOrThrow({ where: { id: dealCommissionId } });
+    const amount = Number(commission.calculatedAmount);
+
+    const entry = await db.journalEntry.create({
+      data: {
+        journalId,
+        date: now,
+        ref: `COMM-${dealCommissionId.slice(-8).toUpperCase()}`,
+        status: 'POSTED',
+        lines: {
+          create: [
+            { accountId: accounts!['6100'], debit: amount, credit: 0, label: 'Sales Commission Expense', analyticAccountId },
+            { accountId: accounts!['2400'], debit: 0, credit: amount, label: 'Commissions Payable', analyticAccountId },
+          ],
+        },
+      },
+    });
+
+    await db.dealCommission.update({
+      where: { id: dealCommissionId },
+      data: { accrualJournalEntryId: entry.id, accruedAt: now },
+    });
   }
 
-  /**
-   * Pay out commissions: DR Commissions Payable / CR Bank.
-   * Spec: Project_Docs/10-sales-commission-spec.md §Payout
-   */
-  async payCommission(_commissionIds: string[], _journalId: string, _userId: string): Promise<void> {
-    // TODO: implement per spec
-    throw new Error('PostingService.payCommission not yet implemented');
+  // -- Commission Payout --
+
+  async payCommission(commissionIds: string[], journalId: string, userId: string): Promise<void> {
+    if (!commissionIds.length) throw new BadRequestException('No commission IDs provided');
+
+    const journal = await this.prisma.journal.findUniqueOrThrow({
+      where: { id: journalId },
+      include: { location: { include: { analyticAccount: true } } },
+    });
+    const companyId = journal.companyId;
+    const now = new Date();
+    await this.assertFiscalPeriodOpen(now, companyId);
+
+    const commissions = await this.prisma.dealCommission.findMany({
+      where: { id: { in: commissionIds }, status: 'PAYABLE' },
+    });
+    if (!commissions.length) throw new BadRequestException('No PAYABLE commissions found');
+
+    const accounts = await this.resolveAccounts(companyId, ['2400', '1200']);
+    const totalPayout = commissions.reduce((s, c) => s + Number(c.calculatedAmount), 0);
+    const analyticAccountId = journal.location?.analyticAccount?.id;
+
+    await this.prisma.$transaction(async (tx) => {
+      const entry = await tx.journalEntry.create({
+        data: {
+          journalId,
+          date: now,
+          ref: `COMPAY-${Date.now()}`,
+          status: 'POSTED',
+          lines: {
+            create: [
+              { accountId: accounts['2400'], debit: totalPayout, credit: 0, label: 'Commissions Payable', analyticAccountId },
+              { accountId: accounts['1200'], debit: 0, credit: totalPayout, label: 'Bank - Commission Payout', analyticAccountId },
+            ],
+          },
+        },
+      });
+
+      for (const c of commissions) {
+        await tx.dealCommission.update({
+          where: { id: c.id },
+          data: { status: 'PAID', paidAt: now, payoutJournalEntryId: entry.id },
+        });
+      }
+    });
   }
 
-  // ── Private helpers ──────────────────────────────────────────────────────
+  // -- Private Helpers --
 
   private async assertFiscalPeriodOpen(date: Date, companyId: string) {
     const fiscal = await this.prisma.fiscalYear.findFirst({
@@ -78,8 +338,24 @@ export class PostingService {
     if (!fiscal) throw new BadRequestException('No open fiscal year for the posting date.');
     if (fiscal.lockDate && date <= fiscal.lockDate) {
       throw new BadRequestException(
-        'Fiscal period is locked. Finance Admin – Lock Override permission required.',
+        'Fiscal period is locked. Finance Admin - Lock Override permission required.',
       );
     }
+  }
+
+  private async resolveAccounts(companyId: string, codes: string[]): Promise<Record<string, string>> {
+    const rows = await this.prisma.account.findMany({
+      where: { companyId, code: { in: codes } },
+      select: { id: true, code: true },
+    });
+    const map: Record<string, string> = {};
+    for (const r of rows) map[r.code] = r.id;
+    const missing = codes.filter((c) => !map[c]);
+    if (missing.length) {
+      throw new BadRequestException(
+        `GL accounts not found in COA: ${missing.join(', ')}. Run prisma:seed first.`,
+      );
+    }
+    return map;
   }
 }
