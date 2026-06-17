@@ -15,6 +15,8 @@ import { DealsModule } from './deals/deals.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { CommissionsModule } from './commissions/commissions.module';
 import { CommissionPlansModule } from './commission-plans/commission-plans.module';
+import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
+import { PartnersModule } from './partners/partners.module';
 import { AuditModule } from './audit/audit.module';
 
 // Finance sub-modules
@@ -52,6 +54,8 @@ import { PublicModule } from './public/public.module';
     AppointmentsModule,
     CommissionsModule,
     CommissionPlansModule,
+    PurchaseOrdersModule,
+    PartnersModule,
 
     // Public (B2C — no auth)
     PublicModule,
