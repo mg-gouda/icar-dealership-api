@@ -41,8 +41,8 @@ export class ReconciliationService {
           journalEntry: { select: { id: true, date: true, ref: true } },
         },
         orderBy: { journalEntry: { date: 'asc' } },
-        skip: (page - 1) * limit,
-        take: limit,
+        skip: (Number(page) - 1) * Number(limit),
+        take: Number(limit),
       }),
       this.prisma.journalEntryLine.count({ where }),
     ]);

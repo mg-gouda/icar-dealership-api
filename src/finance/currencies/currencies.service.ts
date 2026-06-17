@@ -74,8 +74,8 @@ export class CurrenciesService {
         where,
         include: { currency: { select: { code: true, symbol: true } } },
         orderBy: { date: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        skip: (Number(page) - 1) * Number(limit),
+        take: Number(limit),
       }),
       this.prisma.currencyRate.count({ where }),
     ]);

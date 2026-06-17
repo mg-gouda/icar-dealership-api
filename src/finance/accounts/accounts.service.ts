@@ -33,8 +33,8 @@ export class AccountsService {
         where,
         include: { parent: { select: { id: true, code: true, name: true } }, currency: true },
         orderBy: { code: 'asc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        skip: (Number(page) - 1) * Number(limit),
+        take: Number(limit),
       }),
       this.prisma.account.count({ where }),
     ]);

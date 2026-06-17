@@ -35,7 +35,7 @@ export class VehiclesService {
       this.prisma.vehicle.findMany({
         where,
         skip,
-        take: limit,
+        take: Number(limit),
         orderBy: { createdAt: 'desc' },
         include: {
           images: { orderBy: { order: 'asc' }, take: 1 },

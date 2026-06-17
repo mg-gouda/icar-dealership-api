@@ -92,8 +92,8 @@ export class GlService {
         },
       },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-      skip: (page - 1) * limit,
-      take: limit,
+      skip: (Number(page) - 1) * Number(limit),
+      take: Number(limit),
     });
   }
 

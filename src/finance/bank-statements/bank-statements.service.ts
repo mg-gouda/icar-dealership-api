@@ -18,8 +18,8 @@ export class BankStatementsService {
           _count: { select: { lines: true } },
         },
         orderBy: { endDate: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        skip: (Number(page) - 1) * Number(limit),
+        take: Number(limit),
       }),
       this.prisma.bankStatement.count({ where }),
     ]);

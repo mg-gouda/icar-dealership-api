@@ -36,8 +36,8 @@ export class PaymentsService {
         },
       },
       orderBy: { date: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
+      skip: (Number(page) - 1) * Number(limit),
+      take: Number(limit),
     });
   }
 
