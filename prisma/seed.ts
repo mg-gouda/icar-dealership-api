@@ -346,6 +346,211 @@ async function main() {
     },
   });
 
+  // ── 10. Demo users (sales rep + finance + customers) ─────────────────────
+  const staffHash = await bcrypt.hash('Staff@1234!', 10);
+  const custHash  = await bcrypt.hash('Cust@1234!', 10);
+
+  const salesRepPartner = await prisma.partner.upsert({
+    where: { id: 'partner-salesrep-001' },
+    update: {},
+    create: { id: 'partner-salesrep-001', type: 'EMPLOYEE', name: 'Ahmed Hassan', defaultPaymentTermId: dueOnReceipt.id },
+  });
+  const salesRep = await prisma.user.upsert({
+    where: { email: 'ahmed@icar.com' },
+    update: {},
+    create: { email: 'ahmed@icar.com', passwordHash: staffHash, name: 'Ahmed Hassan', role: 'SALES_REP', locationId: cairoLocation.id, partnerId: salesRepPartner.id },
+  });
+
+  const financePartner = await prisma.partner.upsert({
+    where: { id: 'partner-finance-001' },
+    update: {},
+    create: { id: 'partner-finance-001', type: 'EMPLOYEE', name: 'Sara Mahmoud', defaultPaymentTermId: dueOnReceipt.id },
+  });
+  await prisma.user.upsert({
+    where: { email: 'sara@icar.com' },
+    update: {},
+    create: { email: 'sara@icar.com', passwordHash: staffHash, name: 'Sara Mahmoud', role: 'FINANCE', locationId: cairoLocation.id, partnerId: financePartner.id },
+  });
+
+  const cust1Partner = await prisma.partner.upsert({
+    where: { id: 'partner-cust-001' },
+    update: {},
+    create: { id: 'partner-cust-001', type: 'CUSTOMER', name: 'Mohamed Ali', defaultPaymentTermId: dueOnReceipt.id },
+  });
+  const cust1 = await prisma.user.upsert({
+    where: { email: 'mali@example.com' },
+    update: {},
+    create: { email: 'mali@example.com', passwordHash: custHash, name: 'Mohamed Ali', phone: '01012345678', role: 'CUSTOMER', locationId: cairoLocation.id, partnerId: cust1Partner.id },
+  });
+
+  const cust2Partner = await prisma.partner.upsert({
+    where: { id: 'partner-cust-002' },
+    update: {},
+    create: { id: 'partner-cust-002', type: 'CUSTOMER', name: 'Nour Ibrahim', defaultPaymentTermId: dueOnReceipt.id },
+  });
+  await prisma.user.upsert({
+    where: { email: 'nour@example.com' },
+    update: {},
+    create: { email: 'nour@example.com', passwordHash: custHash, name: 'Nour Ibrahim', phone: '01098765432', role: 'CUSTOMER', locationId: cairoLocation.id, partnerId: cust2Partner.id },
+  });
+
+  // ── 11. Demo vehicles ─────────────────────────────────────────────────────
+  const v1 = await prisma.vehicle.upsert({
+    where: { vin: 'JN1AZ4EH5FM000001' },
+    update: {},
+    create: {
+      vin: 'JN1AZ4EH5FM000001', make: 'Toyota', model: 'Camry', year: 2024, trim: 'GL',
+      price: 1_450_000, cost: 1_280_000, status: 'AVAILABLE',
+      bodyType: 'SEDAN', color: 'Pearl White', fuelType: 'Petrol', transmission: 'Automatic',
+      mileage: 0, description: 'Brand new Toyota Camry GL 2024 — full service history, factory warranty.',
+      locationId: cairoLocation.id,
+      adminFeeOverride: 8000, insuranceFeeOverride: 12000,
+    },
+  });
+
+  await prisma.vehicle.upsert({
+    where: { vin: 'JN1AZ4EH5FM000002' },
+    update: {},
+    create: {
+      vin: 'JN1AZ4EH5FM000002', make: 'Toyota', model: 'Corolla', year: 2024, trim: 'XLi',
+      price: 980_000, cost: 860_000, status: 'AVAILABLE',
+      bodyType: 'SEDAN', color: 'Silver', fuelType: 'Petrol', transmission: 'Automatic',
+      mileage: 0, description: 'Toyota Corolla XLi 2024 — economical, reliable city sedan.',
+      locationId: cairoLocation.id,
+    },
+  });
+
+  await prisma.vehicle.upsert({
+    where: { vin: 'JN1AZ4EH5FM000003' },
+    update: {},
+    create: {
+      vin: 'JN1AZ4EH5FM000003', make: 'Hyundai', model: 'Tucson', year: 2023, trim: 'GLS',
+      price: 1_250_000, cost: 1_090_000, status: 'AVAILABLE',
+      bodyType: 'SUV', color: 'Phantom Black', fuelType: 'Petrol', transmission: 'Automatic',
+      mileage: 12_000, description: 'Hyundai Tucson GLS 2023 — low mileage, full panoramic roof.',
+      locationId: cairoLocation.id,
+    },
+  });
+
+  await prisma.vehicle.upsert({
+    where: { vin: 'JN1AZ4EH5FM000004' },
+    update: {},
+    create: {
+      vin: 'JN1AZ4EH5FM000004', make: 'Kia', model: 'Sportage', year: 2024, trim: 'LX',
+      price: 1_100_000, cost: 960_000, status: 'AVAILABLE',
+      bodyType: 'SUV', color: 'Aurora Black', fuelType: 'Petrol', transmission: 'Automatic',
+      mileage: 0, description: 'Kia Sportage LX 2024 — new model, 7-year warranty.',
+      locationId: cairoLocation.id,
+    },
+  });
+
+  await prisma.vehicle.upsert({
+    where: { vin: 'JN1AZ4EH5FM000005' },
+    update: {},
+    create: {
+      vin: 'JN1AZ4EH5FM000005', make: 'Nissan', model: 'Sunny', year: 2024, trim: 'S',
+      price: 680_000, cost: 590_000, status: 'RESERVED',
+      bodyType: 'SEDAN', color: 'Brilliant White', fuelType: 'Petrol', transmission: 'Automatic',
+      mileage: 0, description: 'Nissan Sunny S 2024 — compact and fuel-efficient.',
+      locationId: cairoLocation.id,
+    },
+  });
+
+  await prisma.vehicle.upsert({
+    where: { vin: 'JN1AZ4EH5FM000006' },
+    update: {},
+    create: {
+      vin: 'JN1AZ4EH5FM000006', make: 'Mercedes-Benz', model: 'C200', year: 2023, trim: 'AMG Line',
+      price: 3_200_000, cost: 2_850_000, status: 'AVAILABLE',
+      bodyType: 'SEDAN', color: 'Obsidian Black', fuelType: 'Petrol', transmission: 'Automatic',
+      mileage: 5_000, description: 'Mercedes-Benz C200 AMG Line 2023 — premium luxury, full spec.',
+      locationId: cairoLocation.id,
+    },
+  });
+
+  await prisma.vehicle.upsert({
+    where: { vin: 'JN1AZ4EH5FM000007' },
+    update: {},
+    create: {
+      vin: 'JN1AZ4EH5FM000007', make: 'Honda', model: 'HR-V', year: 2024, trim: 'EX',
+      price: 1_050_000, cost: 920_000, status: 'AVAILABLE',
+      bodyType: 'SUV', color: 'Sonic Grey', fuelType: 'Petrol', transmission: 'CVT',
+      mileage: 0, description: 'Honda HR-V EX 2024 — stylish crossover with Honda Sensing suite.',
+      locationId: cairoLocation.id,
+    },
+  });
+
+  await prisma.vehicle.upsert({
+    where: { vin: 'JN1AZ4EH5FM000008' },
+    update: {},
+    create: {
+      vin: 'JN1AZ4EH5FM000008', make: 'BMW', model: '320i', year: 2022, trim: 'M Sport',
+      price: 2_400_000, cost: 2_100_000, status: 'AVAILABLE',
+      bodyType: 'SEDAN', color: 'Alpine White', fuelType: 'Petrol', transmission: 'Automatic',
+      mileage: 25_000, description: 'BMW 320i M Sport 2022 — pre-owned, single owner, full BMW service.',
+      locationId: cairoLocation.id,
+    },
+  });
+
+  // ── 12. Demo leads ────────────────────────────────────────────────────────
+  await prisma.lead.upsert({
+    where: { id: 'lead-demo-001' },
+    update: {},
+    create: {
+      id: 'lead-demo-001',
+      name: 'Karim Saad', phone: '01155667788', email: 'karim@example.com',
+      source: 'FACEBOOK', status: 'NEW',
+      notes: 'Interested in SUV, budget ~1.2M EGP',
+      locationId: cairoLocation.id,
+      assignedToUserId: salesRep.id,
+      vehicleId: v1.id,
+    },
+  });
+
+  await prisma.lead.upsert({
+    where: { id: 'lead-demo-002' },
+    update: {},
+    create: {
+      id: 'lead-demo-002',
+      name: 'Dina Fawzy', phone: '01023456789',
+      source: 'WALK_IN', status: 'CONTACTED',
+      notes: 'Came in to test drive a Corolla. Follow up this week.',
+      locationId: cairoLocation.id,
+      assignedToUserId: salesRep.id,
+    },
+  });
+
+  await prisma.lead.upsert({
+    where: { id: 'lead-demo-003' },
+    update: {},
+    create: {
+      id: 'lead-demo-003',
+      name: 'Hisham Nour', phone: '01099887766', email: 'hisham@example.com',
+      source: 'WEBSITE', status: 'QUALIFIED',
+      notes: 'Pre-approved for bank financing. Interested in C200.',
+      locationId: cairoLocation.id,
+      assignedToUserId: salesRep.id,
+    },
+  });
+
+  // ── 13. Demo deal (in progress) ───────────────────────────────────────────
+  await prisma.deal.upsert({
+    where: { id: 'deal-demo-001' },
+    update: {},
+    create: {
+      id: 'deal-demo-001',
+      customerId: cust1.id,
+      vehicleId: v1.id,
+      salesRepId: salesRep.id,
+      locationId: cairoLocation.id,
+      purchaseMethod: 'CASH',
+      salePrice: 1_450_000,
+      adminFee: 8000,
+      insuranceFee: 12000,
+      status: 'DRAFT',
+    },
+  });
+
   console.log('✅  Seeding complete.');
 }
 
