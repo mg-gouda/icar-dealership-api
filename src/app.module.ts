@@ -29,6 +29,7 @@ import { BankStatementsModule } from './finance/bank-statements/bank-statements.
 import { ReconciliationModule } from './finance/reconciliation/reconciliation.module';
 import { AssetsModule } from './finance/assets/assets.module';
 import { ReportsModule } from './finance/reports/reports.module';
+import { PublicModule } from './public/public.module';
 
 @Module({
   imports: [
@@ -47,6 +48,9 @@ import { ReportsModule } from './finance/reports/reports.module';
     LeadsModule,
     DealsModule,
     AppointmentsModule,
+
+    // Public (B2C — no auth)
+    PublicModule,
 
     // Finance
     PostingModule,
