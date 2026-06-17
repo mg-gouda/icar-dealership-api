@@ -1,0 +1,1386 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+enum UserRole {
+  CUSTOMER
+  SALES_REP
+  MANAGER
+  FINANCE
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum PartnerType {
+  CUSTOMER
+  VENDOR
+  EMPLOYEE
+  BOTH
+}
+
+enum VehicleStatus {
+  IN_TRANSIT
+  PENDING_INSPECTION
+  AVAILABLE
+  RESERVED
+  PENDING
+  SOLD
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  NEGOTIATING
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum LeadSource {
+  WEBSITE
+  PHONE
+  WALK_IN
+  FACEBOOK
+  MARKETPLACE
+  OTHER
+}
+
+enum DealStatus {
+  DRAFT
+  PENDING_FINANCE
+  APPROVED
+  FINALIZED
+  CANCELLED
+}
+
+enum FinanceApplicationStatus {
+  PENDING
+  APPROVED
+  DENIED
+  MORE_INFO
+}
+
+enum AppointmentType {
+  TEST_DRIVE
+  SERVICE
+  CONSULTATION
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AccountTypeCategory {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  COST_OF_REVENUE
+  EXPENSE
+}
+
+enum JournalType {
+  SALE
+  PURCHASE
+  CASH
+  BANK
+  GENERAL
+}
+
+enum MoveStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum InvoiceType {
+  CUSTOMER_INVOICE
+  CUSTOMER_CREDIT_NOTE
+  VENDOR_BILL
+  VENDOR_CREDIT_NOTE
+}
+
+enum PaymentStatus {
+  NOT_PAID
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
+enum PaymentType {
+  CUSTOMER_PAYMENT
+  VENDOR_PAYMENT
+  CUSTOMER_DEPOSIT
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHECK
+  CARD
+}
+
+enum TaxComputation {
+  PERCENT
+  FIXED
+}
+
+enum TaxScope {
+  SALE
+  PURCHASE
+}
+
+enum AssetMethodType {
+  LINEAR
+  DECLINING
+}
+
+enum AssetState {
+  DRAFT
+  RUNNING
+  CLOSED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+
+enum PurchaseMethod {
+  CASH
+  DEALERSHIP_INSTALLMENT
+  BANK_FINANCING
+}
+
+enum BankFinancingStatus {
+  DOCUMENTS_PENDING
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum BankDocumentStatus {
+  PENDING
+  SUBMITTED
+  VERIFIED
+  REJECTED
+}
+
+enum InstallmentCalculationMethod {
+  FLAT
+  AMORTIZING
+}
+
+enum InstallmentPlanStatus {
+  ACTIVE
+  COMPLETED
+  DEFAULTED
+  CANCELLED
+}
+
+enum InstallmentLineStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
+
+enum CommissionBasisType {
+  FLAT_AMOUNT
+  PERCENT_OF_SALE_PRICE
+  PERCENT_OF_GROSS_PROFIT
+  TIERED
+}
+
+enum CommissionTierMetric {
+  DEAL_COUNT
+  SALE_PRICE_TOTAL
+  GROSS_PROFIT_TOTAL
+}
+
+enum CommissionStatus {
+  ACCRUED
+  PAYABLE
+  PAID
+  CANCELLED
+}
+
+
+model Company {
+  id                   String   @id @default(cuid())
+  name                 String
+  baseCurrencyId       String
+  baseCurrency         Currency @relation(fields: [baseCurrencyId], references: [id])
+  taxId                String?
+  fiscalYearStartMonth Int      @default(1)
+  address              String?
+
+  locations   Location[]
+  accounts    Account[]
+  journals    Journal[]
+  fiscalYears FiscalYear[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Location {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  name        String
+  address     String?
+  city        String?
+  state       String?
+  zip         String?
+  phone       String?
+  timezone    String   @default("UTC")
+  logoUrl     String?
+  displayName String?
+
+  // { mon: { open: "09:00", close: "18:00" }, ... }
+  businessHours Json?
+
+  defaultTaxId String?
+  defaultTax   Tax?    @relation(fields: [defaultTaxId], references: [id])
+
+  // Egypt-specific defaults, applied to Deal pricing unless overridden on the Vehicle/Deal
+  defaultAdminFee       Decimal? @db.Decimal(12, 2)
+  defaultInsuranceFee   Decimal? @db.Decimal(12, 2)
+
+  users           User[]
+  vehicles        Vehicle[]
+  leads           Lead[]
+  deals           Deal[]
+  appointments    Appointment[]
+  journals        Journal[]
+  purchaseOrders  PurchaseOrder[]
+  receipts        Receipt[]
+  commissionPlans CommissionPlan[]
+  analyticAccount AnalyticAccount?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         UserRole
+  locationId   String?
+  location     Location? @relation(fields: [locationId], references: [id])
+
+  partnerId String?  @unique
+  partner   Partner? @relation(fields: [partnerId], references: [id])
+
+  workingHours WorkingHours[]
+  permissions  UserPermission[]
+
+  customerLeads  Lead[] @relation("CustomerLeads")
+  assignedLeads  Lead[] @relation("AssignedRep")
+  leadActivities LeadActivity[]
+
+  customerDeals Deal[] @relation("CustomerDeals")
+  dealsAsRep    Deal[] @relation("SalesRep")
+
+  customerAppointments Appointment[] @relation("CustomerAppointments")
+  assignedAppointments Appointment[] @relation("AssignedRep")
+
+  favorites Favorite[]
+  auditLogs AuditLog[]
+  commissions DealCommission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([locationId])
+}
+
+model WorkingHours {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id])
+  dayOfWeek Int // 0 = Sunday ... 6 = Saturday
+  startTime String // "09:00"
+  endTime   String // "17:00"
+
+  @@unique([userId, dayOfWeek])
+}
+
+model UserPermission {
+  id            String  @id @default(cuid())
+  userId        String
+  user          User    @relation(fields: [userId], references: [id])
+  permissionKey String
+  granted       Boolean @default(true)
+
+  @@unique([userId, permissionKey])
+}
+
+model Partner {
+  id   String      @id @default(cuid())
+  type PartnerType
+  name String
+
+  email   String?
+  phone   String?
+  address String?
+  taxId   String?
+
+  currencyId String?
+  currency   Currency? @relation(fields: [currencyId], references: [id])
+
+  defaultPaymentTermId String?
+  defaultPaymentTerm   PaymentTerm? @relation(fields: [defaultPaymentTermId], references: [id])
+
+  defaultExpenseAccountId String?
+  defaultExpenseAccount   Account? @relation("PartnerExpenseAccount", fields: [defaultExpenseAccountId], references: [id])
+
+  // Vendor-only: Auction, Manufacturer, Parts Supplier, Service Provider
+  vendorCategory String?
+
+  taxExempt           Boolean @default(false)
+  taxExemptCertNumber String?
+  taxExemptCertUrl    String?
+
+  user User?
+
+  invoices          Invoice[]
+  payments          Payment[]
+  purchaseOrders    PurchaseOrder[]
+  journalEntryLines JournalEntryLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+model Vehicle {
+  id           String        @id @default(cuid())
+  vin          String        @unique
+  make         String
+  model        String
+  year         Int
+  trim         String?
+  mileage      Int?
+  price        Decimal       @db.Decimal(12, 2)
+  cost         Decimal?      @db.Decimal(12, 2)
+  status       VehicleStatus @default(IN_TRANSIT)
+  locationId   String
+  location     Location      @relation(fields: [locationId], references: [id])
+  bodyType     String?
+  fuelType     String?
+  transmission String?
+  color        String?
+  description  String?
+
+  // Egypt-specific: overrides Location default fees for this specific vehicle
+  adminFeeOverride     Decimal? @db.Decimal(12, 2)
+  insuranceFeeOverride Decimal? @db.Decimal(12, 2)
+
+  images   VehicleImage[]
+  features VehicleFeature[]
+
+  leads        Lead[]
+  dealsAsSold    Deal[] @relation("SoldVehicle")
+  dealsAsTradeIn Deal[] @relation("TradeInVehicle")
+
+  appointments Appointment[]
+  favorites    Favorite[]
+
+  purchaseOrderLines PurchaseOrderLine[]
+  receiptLines       ReceiptLine[]
+  invoiceLines       InvoiceLine[]
+  vendorBills        Invoice[] @relation("VendorBillSourceVehicle")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([locationId])
+  @@index([status])
+}
+
+model VehicleImage {
+  id        String  @id @default(cuid())
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+  url       String
+  order     Int     @default(0)
+}
+
+model VehicleFeature {
+  id        String  @id @default(cuid())
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+  feature   String
+}
+
+
+model Lead {
+  id     String     @id @default(cuid())
+  name   String
+  email  String?
+  phone  String?
+  source LeadSource @default(WEBSITE)
+  status LeadStatus @default(NEW)
+  notes  String?
+
+  customerId String?
+  customer   User?   @relation("CustomerLeads", fields: [customerId], references: [id])
+
+  assignedToUserId String?
+  assignedTo       User?   @relation("AssignedRep", fields: [assignedToUserId], references: [id])
+
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  activities   LeadActivity[]
+  deals        Deal[]
+  appointments Appointment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([locationId, status])
+  @@index([assignedToUserId])
+}
+
+model LeadActivity {
+  id     String @id @default(cuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  type String
+  note String?
+
+  createdAt DateTime @default(now())
+}
+
+
+model Deal {
+  id     String     @id @default(cuid())
+  status DealStatus @default(DRAFT)
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id])
+
+  vehicleId String
+  vehicle   Vehicle @relation("SoldVehicle", fields: [vehicleId], references: [id])
+
+  tradeInVehicleId String?  @unique
+  tradeInVehicle   Vehicle? @relation("TradeInVehicle", fields: [tradeInVehicleId], references: [id])
+  tradeInValue     Decimal? @db.Decimal(12, 2)
+
+  customerId String
+  customer   User   @relation("CustomerDeals", fields: [customerId], references: [id])
+
+  salesRepId String
+  salesRep   User   @relation("SalesRep", fields: [salesRepId], references: [id])
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  salePrice Decimal @db.Decimal(12, 2)
+
+  // Egypt-specific: how the customer is paying
+  purchaseMethod PurchaseMethod @default(CASH)
+
+  // Final fee amounts for this deal — pre-filled from Vehicle override -> Location default, editable
+  adminFee      Decimal? @db.Decimal(12, 2)
+  insuranceFee  Decimal? @db.Decimal(12, 2)
+
+  financeApplication FinanceApplication?
+  installmentPlan     InstallmentPlan?
+  documents           Document[]
+  invoices            Invoice[]
+  payments            Payment[]
+  commissions         DealCommission[]
+
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([locationId, status])
+  @@index([salesRepId])
+}
+
+model FinanceApplication {
+  id     String                    @id @default(cuid())
+  dealId String                    @unique
+  deal   Deal                      @relation(fields: [dealId], references: [id])
+  status FinanceApplicationStatus  @default(PENDING)
+
+  applicantInfo    Json
+  creditScoreRange String?
+  lenderName       String?
+  termMonths       Int?
+  apr              Decimal? @db.Decimal(5, 2)
+  monthlyPayment   Decimal? @db.Decimal(12, 2)
+
+  // --- Egypt bank financing ---
+  bankName            String?
+  bankBranch          String?
+  bankFinancingStatus BankFinancingStatus @default(DOCUMENTS_PENDING)
+  rejectionReason     String?
+
+  requiredDocuments BankFinancingDocument[]
+  bankApproval      BankApproval?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BankFinancingDocument {
+  id                   String              @id @default(cuid())
+  financeApplicationId String
+  financeApplication   FinanceApplication  @relation(fields: [financeApplicationId], references: [id])
+
+  // NATIONAL_ID_FRONT, NATIONAL_ID_BACK, PROOF_OF_INCOME, BANK_STATEMENT, CAR_LICENSE_BAYAN, ...
+  documentType String
+  status       BankDocumentStatus @default(PENDING)
+  fileUrl      String?
+  notes        String?
+
+  uploadedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([financeApplicationId])
+}
+
+model BankApproval {
+  id                   String             @id @default(cuid())
+  financeApplicationId String             @unique
+  financeApplication   FinanceApplication @relation(fields: [financeApplicationId], references: [id])
+
+  approvalReferenceNumber String
+  approvedAmount          Decimal  @db.Decimal(14, 2)
+  approvalDate            DateTime
+  expiryDate              DateTime?
+  approvalDocumentUrl     String?
+  notes                   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Appointment {
+  id     String             @id @default(cuid())
+  type   AppointmentType
+  status AppointmentStatus  @default(SCHEDULED)
+
+  customerId String
+  customer   User   @relation("CustomerAppointments", fields: [customerId], references: [id])
+
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id])
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  assignedToUserId String
+  assignedTo       User   @relation("AssignedRep", fields: [assignedToUserId], references: [id])
+
+  scheduledAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([locationId, scheduledAt])
+  @@index([assignedToUserId, scheduledAt])
+}
+
+model Favorite {
+  id String @id @default(cuid())
+
+  customerId String
+  customer   User   @relation(fields: [customerId], references: [id])
+
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([customerId, vehicleId])
+}
+
+model Document {
+  id     String @id @default(cuid())
+  dealId String
+  deal   Deal   @relation(fields: [dealId], references: [id])
+
+  type            String // PURCHASE_AGREEMENT, BILL_OF_SALE, etc.
+  url             String
+  signatureStatus String? // pending, sent, signed
+
+  uploadedAt DateTime @default(now())
+}
+
+
+model Currency {
+  id            String  @id @default(cuid())
+  code          String  @unique // USD, EUR, ...
+  symbol        String
+  decimalPlaces Int     @default(2)
+  active        Boolean @default(true)
+
+  rates          CurrencyRate[]
+  companies      Company[]
+  accounts       Account[]
+  journals       Journal[]
+  partners       Partner[]
+  invoices       Invoice[]
+  journalEntries JournalEntry[]
+  bankAccounts   BankAccount[]
+}
+
+model CurrencyRate {
+  id         String   @id @default(cuid())
+  currencyId String
+  currency   Currency @relation(fields: [currencyId], references: [id])
+  // units of company base currency per 1 unit of this currency
+  rate       Decimal  @db.Decimal(18, 6)
+  date       DateTime
+
+  @@unique([currencyId, date])
+}
+
+model Account {
+  id        String              @id @default(cuid())
+  companyId String
+  company   Company             @relation(fields: [companyId], references: [id])
+  code      String
+  name      String
+  type      AccountTypeCategory
+
+  parentId String?
+  parent   Account?  @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children Account[] @relation("AccountHierarchy")
+
+  reconcilable Boolean @default(false)
+
+  currencyId String?
+  currency   Currency? @relation(fields: [currencyId], references: [id])
+
+  journalEntryLines JournalEntryLine[]
+  invoiceLines      InvoiceLine[]
+  taxes             Tax[]
+  productCategoryTaxMappings ProductCategoryTaxMapping[]
+  partnerExpenseDefaults      Partner[] @relation("PartnerExpenseAccount")
+  recurringTemplateLines      RecurringJournalEntryTemplateLine[]
+
+  journalsAsDefaultDebit  Journal[] @relation("JournalDefaultDebit")
+  journalsAsDefaultCredit Journal[] @relation("JournalDefaultCredit")
+
+  assetsAsAssetAccount      Asset[] @relation("AssetAccount")
+  assetsAsDepExpenseAccount Asset[] @relation("DepreciationExpenseAccount")
+  assetsAsAccumDepAccount   Asset[] @relation("AccumulatedDepAccount")
+
+  @@unique([companyId, code])
+}
+
+model Journal {
+  id        String      @id @default(cuid())
+  companyId String
+  company   Company     @relation(fields: [companyId], references: [id])
+
+  // null = company-wide (e.g. General/Misc journal); set = location-specific
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id])
+
+  name String
+  code String
+  type JournalType
+
+  defaultDebitAccountId String?
+  defaultDebitAccount   Account? @relation("JournalDefaultDebit", fields: [defaultDebitAccountId], references: [id])
+
+  defaultCreditAccountId String?
+  defaultCreditAccount   Account? @relation("JournalDefaultCredit", fields: [defaultCreditAccountId], references: [id])
+
+  currencyId String?
+  currency   Currency? @relation(fields: [currencyId], references: [id])
+
+  // e.g. "INV/LA1/" used to build document numbers
+  sequencePrefix String?
+
+  bankAccountId String?      @unique
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
+
+  journalEntries      JournalEntry[]
+  invoices            Invoice[]
+  payments            Payment[]
+  recurringTemplates  RecurringJournalEntryTemplate[]
+
+  @@unique([companyId, code])
+}
+
+model TaxGroup {
+  id    String @id @default(cuid())
+  name  String
+  taxes Tax[]
+}
+
+model Tax {
+  id              String          @id @default(cuid())
+  name            String
+  amount          Decimal         @db.Decimal(6, 3)
+  computation     TaxComputation  @default(PERCENT)
+  scope           TaxScope        @default(SALE)
+  includedInPrice Boolean         @default(false)
+
+  taxGroupId String?
+  taxGroup   TaxGroup? @relation(fields: [taxGroupId], references: [id])
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id])
+
+  invoiceLines  InvoiceLine[]
+  productCategoryMappings ProductCategoryTaxMapping[]
+  locations     Location[]
+}
+
+model ProductCategoryTaxMapping {
+  id       String @id @default(cuid())
+  category String @unique // VEHICLE, WARRANTY, GAP_INSURANCE, DOC_FEE, REGISTRATION_FEE, PARTS, SERVICE
+
+  taxId String?
+  tax   Tax?    @relation(fields: [taxId], references: [id])
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id])
+}
+
+model PaymentTerm {
+  id    String            @id @default(cuid())
+  name  String
+  lines PaymentTermLine[]
+
+  partners Partner[]
+  invoices Invoice[]
+}
+
+model PaymentTermLine {
+  id            String      @id @default(cuid())
+  paymentTermId String
+  paymentTerm   PaymentTerm @relation(fields: [paymentTermId], references: [id])
+
+  daysDue    Int
+  percentage Decimal @db.Decimal(5, 2)
+}
+
+model FiscalYear {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  lockDate  DateTime?
+}
+
+model AnalyticAccount {
+  id         String   @id @default(cuid())
+  locationId String   @unique
+  location   Location @relation(fields: [locationId], references: [id])
+  name       String
+
+  journalEntryLines JournalEntryLine[]
+}
+
+
+model JournalEntry {
+  id        String     @id @default(cuid())
+  journalId String
+  journal   Journal    @relation(fields: [journalId], references: [id])
+  date      DateTime
+  ref       String?
+  status    MoveStatus @default(DRAFT)
+
+  currencyId String?
+  currency   Currency? @relation(fields: [currencyId], references: [id])
+
+  // 1:1 link if this entry was generated by posting an invoice/bill
+  invoiceId String?  @unique
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+
+  // 1:1 link if this entry was generated by registering a payment
+  paymentId String?  @unique
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+
+  // 1:1 link if this entry is an asset depreciation posting
+  assetDepreciationLineId String?                @unique
+  assetDepreciationLine   AssetDepreciationLine? @relation(fields: [assetDepreciationLineId], references: [id])
+
+  // Self-referencing reversal link
+  reversedEntryId String?       @unique
+  reversedEntry   JournalEntry? @relation("Reversal", fields: [reversedEntryId], references: [id])
+  reversalEntry   JournalEntry? @relation("Reversal")
+
+  // If auto-generated from a recurring template
+  recurringTemplateId String?
+  recurringTemplate    RecurringJournalEntryTemplate? @relation(fields: [recurringTemplateId], references: [id])
+
+  // 1:1 back-links if this entry is a commission accrual or payout posting
+  commissionAccrualFor DealCommission? @relation("CommissionAccrual")
+  commissionPayoutFor  DealCommission? @relation("CommissionPayout")
+
+  lines JournalEntryLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([journalId, date])
+  @@index([status])
+}
+
+model JournalEntryLine {
+  id             String       @id @default(cuid())
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id])
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id])
+
+  partnerId String?
+  partner   Partner? @relation(fields: [partnerId], references: [id])
+
+  label  String?
+  debit  Decimal @default(0) @db.Decimal(14, 2)
+  credit Decimal @default(0) @db.Decimal(14, 2)
+
+  // for foreign-currency lines
+  currencyId     String?
+  amountCurrency Decimal? @db.Decimal(14, 2)
+
+  analyticAccountId String?
+  analyticAccount   AnalyticAccount? @relation(fields: [analyticAccountId], references: [id])
+
+  reconciled     Boolean @default(false)
+  matchingNumber String?
+
+  reconciliations Reconciliation[]
+
+  @@index([accountId])
+  @@index([journalEntryId])
+}
+
+
+model Invoice {
+  id     String      @id @default(cuid())
+  type   InvoiceType
+  status MoveStatus  @default(DRAFT)
+
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id])
+
+  journalId String
+  journal   Journal @relation(fields: [journalId], references: [id])
+
+  date    DateTime  @default(now())
+  dueDate DateTime?
+
+  paymentTermId String?
+  paymentTerm   PaymentTerm? @relation(fields: [paymentTermId], references: [id])
+
+  currencyId String?
+  currency   Currency? @relation(fields: [currencyId], references: [id])
+
+  paymentStatus PaymentStatus @default(NOT_PAID)
+
+  amountUntaxed  Decimal @default(0) @db.Decimal(14, 2)
+  amountTax      Decimal @default(0) @db.Decimal(14, 2)
+  amountTotal    Decimal @default(0) @db.Decimal(14, 2)
+  amountResidual Decimal @default(0) @db.Decimal(14, 2)
+
+  exemptionReason String?
+
+  // Source links
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id])
+
+  vendorBillSourceVehicleId String?
+  vendorBillSourceVehicle   Vehicle? @relation("VendorBillSourceVehicle", fields: [vendorBillSourceVehicleId], references: [id])
+
+  receiptId String?
+  receipt   Receipt? @relation(fields: [receiptId], references: [id])
+
+  lines              InvoiceLine[]
+  journalEntry       JournalEntry?
+  paymentAllocations PaymentAllocation[]
+  assets             Asset[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([partnerId, status])
+  @@index([type, paymentStatus])
+}
+
+model InvoiceLine {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  description String
+  // VEHICLE, TRADE_IN_CREDIT, WARRANTY, GAP_INSURANCE, DOC_FEE, REGISTRATION_FEE, PARTS, SERVICE
+  category    String?
+
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  quantity  Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice Decimal @db.Decimal(14, 2)
+  discount  Decimal @default(0) @db.Decimal(5, 2)
+
+  taxId String?
+  tax   Tax?    @relation(fields: [taxId], references: [id])
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id])
+
+  subtotal Decimal @db.Decimal(14, 2)
+}
+
+
+model Payment {
+  id     String        @id @default(cuid())
+  type   PaymentType
+  status MoveStatus    @default(DRAFT)
+
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id])
+
+  journalId String
+  journal   Journal @relation(fields: [journalId], references: [id])
+
+  date   DateTime      @default(now())
+  amount Decimal       @db.Decimal(14, 2)
+  method PaymentMethod
+  memo   String?
+
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id])
+
+  allocations  PaymentAllocation[]
+  journalEntry JournalEntry?
+  installmentLine InstallmentLine?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([partnerId, type])
+}
+
+model PaymentAllocation {
+  id        String  @id @default(cuid())
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id])
+
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  amount Decimal @db.Decimal(14, 2)
+
+  @@index([invoiceId])
+}
+
+
+model InstallmentPlan {
+  id     String                 @id @default(cuid())
+  dealId String                 @unique
+  deal   Deal                   @relation(fields: [dealId], references: [id])
+  status InstallmentPlanStatus  @default(ACTIVE)
+
+  // Amount being financed = sale price + fees - trade-in - down payment
+  principalAmount Decimal @db.Decimal(14, 2)
+  downPayment     Decimal @default(0) @db.Decimal(14, 2)
+
+  // Annual interest rate, e.g. 12.5 = 12.5%
+  interestRate Decimal @db.Decimal(5, 2)
+
+  durationMonths    Int
+  calculationMethod InstallmentCalculationMethod
+
+  // Computed at generation time
+  totalPayable       Decimal  @db.Decimal(14, 2)
+  monthlyInstallment Decimal? @db.Decimal(14, 2) // null for amortizing (varies per line)
+
+  startDate DateTime
+
+  installments InstallmentLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model InstallmentLine {
+  id                String          @id @default(cuid())
+  installmentPlanId String
+  installmentPlan   InstallmentPlan @relation(fields: [installmentPlanId], references: [id])
+
+  installmentNumber Int
+  dueDate           DateTime
+
+  principalPortion Decimal @db.Decimal(14, 2)
+  interestPortion  Decimal @db.Decimal(14, 2)
+  totalDue         Decimal @db.Decimal(14, 2)
+
+  status     InstallmentLineStatus @default(PENDING)
+  paidAmount Decimal               @default(0) @db.Decimal(14, 2)
+  paidDate   DateTime?
+
+  // Set once this installment is settled via a Payment
+  paymentId String?  @unique
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([installmentPlanId, installmentNumber])
+  @@index([status, dueDate])
+}
+
+
+model BankAccount {
+  id            String  @id @default(cuid())
+  name          String
+  accountNumber String?
+  bankName      String?
+
+  currencyId String?
+  currency   Currency? @relation(fields: [currencyId], references: [id])
+
+  journal    Journal?
+  statements BankStatement[]
+}
+
+model BankStatement {
+  id            String      @id @default(cuid())
+  bankAccountId String
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id])
+
+  startDate       DateTime
+  endDate         DateTime
+  startingBalance Decimal  @db.Decimal(14, 2)
+  endingBalance   Decimal  @db.Decimal(14, 2)
+
+  lines BankStatementLine[]
+
+  createdAt DateTime @default(now())
+}
+
+model BankStatementLine {
+  id              String        @id @default(cuid())
+  bankStatementId String
+  bankStatement   BankStatement @relation(fields: [bankStatementId], references: [id])
+
+  date        DateTime
+  description String
+  amount      Decimal  @db.Decimal(14, 2)
+  reference   String?
+  reconciled  Boolean  @default(false)
+
+  reconciliations Reconciliation[]
+}
+
+model Reconciliation {
+  id String @id @default(cuid())
+
+  bankStatementLineId String
+  bankStatementLine   BankStatementLine @relation(fields: [bankStatementLineId], references: [id])
+
+  journalEntryLineId String
+  journalEntryLine   JournalEntryLine @relation(fields: [journalEntryLineId], references: [id])
+
+  amount Decimal @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+}
+
+
+model Asset {
+  id     String     @id @default(cuid())
+  name   String
+  state  AssetState @default(DRAFT)
+
+  vendorBillId String?
+  vendorBill   Invoice? @relation(fields: [vendorBillId], references: [id])
+
+  assetAccountId String
+  assetAccount   Account @relation("AssetAccount", fields: [assetAccountId], references: [id])
+
+  depreciationExpenseAccountId String
+  depreciationExpenseAccount   Account @relation("DepreciationExpenseAccount", fields: [depreciationExpenseAccountId], references: [id])
+
+  accumulatedDepAccountId String
+  accumulatedDepAccount   Account @relation("AccumulatedDepAccount", fields: [accumulatedDepAccountId], references: [id])
+
+  originalValue  Decimal         @db.Decimal(14, 2)
+  salvageValue   Decimal         @default(0) @db.Decimal(14, 2)
+  method         AssetMethodType @default(LINEAR)
+  decliningRate  Decimal?        @db.Decimal(5, 2) // used when method = DECLINING
+  durationMonths Int
+  startDate      DateTime
+
+  depreciationLines AssetDepreciationLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AssetDepreciationLine {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id])
+
+  sequence          Int
+  date              DateTime
+  amount            Decimal  @db.Decimal(14, 2)
+  accumulatedAmount Decimal  @db.Decimal(14, 2)
+  remainingValue    Decimal  @db.Decimal(14, 2)
+  posted            Boolean  @default(false)
+
+  journalEntry JournalEntry?
+
+  @@unique([assetId, sequence])
+}
+
+
+model PurchaseOrder {
+  id     String              @id @default(cuid())
+  status PurchaseOrderStatus @default(DRAFT)
+
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id])
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  orderDate    DateTime  @default(now())
+  expectedDate DateTime?
+  total        Decimal   @default(0) @db.Decimal(14, 2)
+
+  lines    PurchaseOrderLine[]
+  receipts Receipt[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+
+  description String
+
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  quantity Decimal @default(1) @db.Decimal(10, 2)
+  unitCost Decimal @db.Decimal(14, 2)
+
+  receiptLines ReceiptLine[]
+}
+
+model Receipt {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  receiptDate DateTime @default(now())
+
+  lines       ReceiptLine[]
+  vendorBills Invoice[]
+
+  createdAt DateTime @default(now())
+}
+
+model ReceiptLine {
+  id        String  @id @default(cuid())
+  receiptId String
+  receipt   Receipt @relation(fields: [receiptId], references: [id])
+
+  purchaseOrderLineId String
+  purchaseOrderLine   PurchaseOrderLine @relation(fields: [purchaseOrderLineId], references: [id])
+
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  quantityReceived Decimal @db.Decimal(10, 2)
+}
+
+
+model RecurringJournalEntryTemplate {
+  id        String  @id @default(cuid())
+  name      String
+  journalId String
+  journal   Journal @relation(fields: [journalId], references: [id])
+
+  // "MONTHLY", "QUARTERLY", "YEARLY"
+  recurrence  String
+  nextRunDate DateTime
+  active      Boolean  @default(true)
+
+  lines            RecurringJournalEntryTemplateLine[]
+  generatedEntries JournalEntry[]
+}
+
+model RecurringJournalEntryTemplateLine {
+  id         String                         @id @default(cuid())
+  templateId String
+  template   RecurringJournalEntryTemplate  @relation(fields: [templateId], references: [id])
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id])
+
+  label  String?
+  debit  Decimal @default(0) @db.Decimal(14, 2)
+  credit Decimal @default(0) @db.Decimal(14, 2)
+}
+
+
+model CommissionPlan {
+  id        String              @id @default(cuid())
+  name      String
+  basisType CommissionBasisType
+  active    Boolean             @default(true)
+
+  // Used for FLAT_AMOUNT / PERCENT_OF_SALE_PRICE / PERCENT_OF_GROSS_PROFIT
+  flatAmount Decimal? @db.Decimal(12, 2)
+  percentage Decimal? @db.Decimal(5, 2)
+
+  // Scoping — narrower plans should be checked first by the resolution logic
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id])
+
+  // Matches Vehicle.bodyType or a "NEW"/"USED" category derived from the deal
+  vehicleCategory String?
+
+  // Which split-role this plan applies to, e.g. "PRIMARY_SALES_REP",
+  // "CLOSER", "FINANCE_MANAGER"
+  applicableRole String?
+
+  // Used only when basisType = TIERED
+  tierMetric CommissionTierMetric?
+  // Evaluation window for tier volume, e.g. "MONTHLY"
+  tierPeriod String?
+  tiers      CommissionTier[]
+
+  dealCommissions DealCommission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CommissionTier {
+  id               String         @id @default(cuid())
+  commissionPlanId String
+  commissionPlan   CommissionPlan @relation(fields: [commissionPlanId], references: [id])
+
+  // Inclusive lower bound on the tierMetric for the period; null upper bound = no cap
+  minValue Decimal  @db.Decimal(14, 2)
+  maxValue Decimal? @db.Decimal(14, 2)
+
+  // How this tier's rate is interpreted
+  rateType  CommissionBasisType // FLAT_AMOUNT, PERCENT_OF_SALE_PRICE, or PERCENT_OF_GROSS_PROFIT
+  rateValue Decimal             @db.Decimal(12, 2)
+
+  @@index([commissionPlanId])
+}
+
+model DealCommission {
+  id     String           @id @default(cuid())
+  dealId String
+  deal   Deal             @relation(fields: [dealId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // "PRIMARY_SALES_REP", "CLOSER", "FINANCE_MANAGER", etc.
+  roleInDeal String
+
+  commissionPlanId String?
+  commissionPlan   CommissionPlan? @relation(fields: [commissionPlanId], references: [id])
+
+  // Commission for the whole deal under the resolved plan, before splitting
+  baseAmount Decimal @db.Decimal(14, 2)
+  // Percentage of baseAmount allocated to this person (splits sum to 100)
+  splitPercentage Decimal @db.Decimal(5, 2)
+  // baseAmount * splitPercentage / 100
+  calculatedAmount Decimal @db.Decimal(14, 2)
+
+  status CommissionStatus @default(ACCRUED)
+
+  // DR Sales Commission Expense / CR Commissions Payable — posted at Deal finalize
+  accrualJournalEntryId String?       @unique
+  accrualJournalEntry   JournalEntry? @relation("CommissionAccrual", fields: [accrualJournalEntryId], references: [id])
+
+  // DR Commissions Payable / CR Bank/Cash — posted when actually paid out
+  payoutJournalEntryId String?       @unique
+  payoutJournalEntry   JournalEntry? @relation("CommissionPayout", fields: [payoutJournalEntryId], references: [id])
+
+  accruedAt  DateTime?
+  payableAt  DateTime?
+  paidAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([dealId])
+}
+
+
+
+model AuditLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  action     String // CREATE, UPDATE, DELETE, POST, REVERSE, LOCK_OVERRIDE...
+  entityType String
+  entityId   String
+  changes    Json? // before/after diff for key fields
+
+  locationId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+}
