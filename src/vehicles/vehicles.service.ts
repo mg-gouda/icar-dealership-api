@@ -82,4 +82,21 @@ export class VehiclesService {
       include: { images: true },
     });
   }
+
+  async addImage(vehicleId: string, data: { url: string; order?: number }) {
+    return this.prisma.vehicleImage.create({
+      data: { vehicleId, url: data.url, order: data.order ?? 0 },
+    });
+  }
+
+  async updateImage(vehicleId: string, imageId: string, data: { order?: number }) {
+    return this.prisma.vehicleImage.update({
+      where: { id: imageId, vehicleId },
+      data,
+    });
+  }
+
+  async deleteImage(vehicleId: string, imageId: string) {
+    return this.prisma.vehicleImage.delete({ where: { id: imageId, vehicleId } });
+  }
 }

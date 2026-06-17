@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { VehiclesService } from './vehicles.service';
@@ -48,5 +48,23 @@ export class VehiclesController {
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: any) {
     return this.vehiclesService.update(id, body);
+  }
+
+  @Post(':id/images')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  addImage(@Param('id') id: string, @Body() body: { url: string; order?: number }) {
+    return this.vehiclesService.addImage(id, body);
+  }
+
+  @Patch(':id/images/:imageId')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  updateImage(@Param('id') id: string, @Param('imageId') imageId: string, @Body() body: { order?: number }) {
+    return this.vehiclesService.updateImage(id, imageId, body);
+  }
+
+  @Delete(':id/images/:imageId')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  deleteImage(@Param('id') id: string, @Param('imageId') imageId: string) {
+    return this.vehiclesService.deleteImage(id, imageId);
   }
 }

@@ -551,6 +551,58 @@ async function main() {
     },
   });
 
+  // ── Commission Plans ─────────────────────────────────────────────────────
+  await prisma.commissionPlan.upsert({
+    where: { id: 'cp-percent-sale' },
+    update: {},
+    create: {
+      id: 'cp-percent-sale',
+      name: '2% of Sale Price (Standard)',
+      basisType: 'PERCENT_OF_SALE_PRICE',
+      percentage: 2,
+      active: true,
+      applicableRole: 'PRIMARY_SALES_REP',
+    },
+  });
+
+  await prisma.commissionPlan.upsert({
+    where: { id: 'cp-flat-senior' },
+    update: {},
+    create: {
+      id: 'cp-flat-senior',
+      name: '3% Senior Rep Plan',
+      basisType: 'PERCENT_OF_SALE_PRICE',
+      percentage: 3,
+      active: true,
+      applicableRole: 'PRIMARY_SALES_REP',
+    },
+  });
+
+  await prisma.commissionPlan.upsert({
+    where: { id: 'cp-fi-manager' },
+    update: {},
+    create: {
+      id: 'cp-fi-manager',
+      name: '1% Finance Manager Plan',
+      basisType: 'PERCENT_OF_SALE_PRICE',
+      percentage: 1,
+      active: true,
+      applicableRole: 'FINANCE_MANAGER',
+    },
+  });
+
+  // ── Manager user ─────────────────────────────────────────────────────────
+  const managerPartner = await prisma.partner.upsert({
+    where: { id: 'partner-manager-001' },
+    update: {},
+    create: { id: 'partner-manager-001', type: 'EMPLOYEE', name: 'Khaled Omar', defaultPaymentTermId: dueOnReceipt.id },
+  });
+  await prisma.user.upsert({
+    where: { email: 'khaled@icar.com' },
+    update: {},
+    create: { email: 'khaled@icar.com', passwordHash: staffHash, name: 'Khaled Omar', role: 'MANAGER', locationId: cairoLocation.id, partnerId: managerPartner.id },
+  });
+
   console.log('✅  Seeding complete.');
 }
 
