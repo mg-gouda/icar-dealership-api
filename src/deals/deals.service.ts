@@ -46,7 +46,7 @@ export class DealsService {
         salesRep: { select: { id: true, name: true } },
         location: true,
         installmentPlan: { include: { installments: { orderBy: { dueDate: 'asc' } } } },
-        financeApplication: true,
+        financeApplication: { include: { requiredDocuments: true, bankApproval: true } },
         commissions: { include: { user: { select: { id: true, name: true } } } },
         invoices: { select: { id: true, status: true, amountTotal: true, dueDate: true } },
       },
@@ -187,5 +187,98 @@ export class DealsService {
     });
     await this.audit.log({ entity: 'InstallmentPlan', entityId: plan.id, action: 'CREATE', userId, newValue: plan });
     return plan;
+  }
+
+  // ── Finance Application ────────────────────────────────────────────────────
+
+  async createFinanceApplication(dealId: string, data: any) {
+    const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id: dealId } });
+    if (deal.purchaseMethod !== 'BANK_FINANCING') {
+      throw new Error('Finance applications only apply to BANK_FINANCING deals');
+    }
+    return this.prisma.financeApplication.create({
+      data: {
+        dealId,
+        applicantInfo: data.applicantInfo ?? {},
+        creditScoreRange: data.creditScoreRange,
+        lenderName: data.lenderName,
+        bankName: data.bankName,
+        bankBranch: data.bankBranch,
+        termMonths: data.termMonths ? Number(data.termMonths) : undefined,
+        apr: data.apr,
+        monthlyPayment: data.monthlyPayment,
+        requiredDocuments: data.documents?.length ? {
+          create: data.documents.map((d: any) => ({ documentType: d.documentType, notes: d.notes })),
+        } : undefined,
+      },
+      include: { requiredDocuments: true, bankApproval: true },
+    });
+  }
+
+  async updateFinanceApplication(dealId: string, data: any) {
+    const app = await this.prisma.financeApplication.findUniqueOrThrow({ where: { dealId } });
+    return this.prisma.financeApplication.update({
+      where: { id: app.id },
+      data: {
+        status: data.status,
+        bankName: data.bankName,
+        bankBranch: data.bankBranch,
+        bankFinancingStatus: data.bankFinancingStatus,
+        lenderName: data.lenderName,
+        creditScoreRange: data.creditScoreRange,
+        termMonths: data.termMonths ? Number(data.termMonths) : undefined,
+        apr: data.apr,
+        monthlyPayment: data.monthlyPayment,
+        rejectionReason: data.rejectionReason,
+      },
+      include: { requiredDocuments: true, bankApproval: true },
+    });
+  }
+
+  async addDocument(dealId: string, data: { documentType: string; fileUrl?: string; notes?: string }) {
+    const app = await this.prisma.financeApplication.findUniqueOrThrow({ where: { dealId } });
+    return this.prisma.bankFinancingDocument.create({
+      data: { financeApplicationId: app.id, ...data },
+    });
+  }
+
+  async updateDocument(dealId: string, docId: string, data: { status?: string; fileUrl?: string; notes?: string }) {
+    const app = await this.prisma.financeApplication.findUniqueOrThrow({ where: { dealId } });
+    return this.prisma.bankFinancingDocument.update({
+      where: { id: docId, financeApplicationId: app.id },
+      data: {
+        status: data.status as any,
+        fileUrl: data.fileUrl,
+        notes: data.notes,
+        uploadedAt: data.fileUrl ? new Date() : undefined,
+      },
+    });
+  }
+
+  async recordBankApproval(dealId: string, data: {
+    approvalReferenceNumber: string; approvedAmount: number;
+    approvalDate: string; expiryDate?: string; approvalDocumentUrl?: string; notes?: string;
+  }) {
+    const app = await this.prisma.financeApplication.findUniqueOrThrow({ where: { dealId } });
+    const approval = await this.prisma.bankApproval.upsert({
+      where: { financeApplicationId: app.id },
+      update: { ...data, approvalDate: new Date(data.approvalDate), expiryDate: data.expiryDate ? new Date(data.expiryDate) : null },
+      create: {
+        financeApplicationId: app.id,
+        approvalReferenceNumber: data.approvalReferenceNumber,
+        approvedAmount: data.approvedAmount,
+        approvalDate: new Date(data.approvalDate),
+        expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
+        approvalDocumentUrl: data.approvalDocumentUrl,
+        notes: data.notes,
+      },
+    });
+    await this.prisma.financeApplication.update({
+      where: { id: app.id },
+      data: { bankFinancingStatus: 'APPROVED', status: 'APPROVED' },
+    });
+    // Move deal to PENDING_FINANCE for final finance review before finalize
+    await this.prisma.deal.update({ where: { id: dealId }, data: { status: 'PENDING_FINANCE' } });
+    return approval;
   }
 }

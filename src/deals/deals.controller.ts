@@ -58,4 +58,40 @@ export class DealsController {
   addInstallmentPlan(@Param('id') id: string, @Body() body: any, @Request() req: any) {
     return this.svc.addInstallmentPlan(id, body, req.user.id);
   }
+
+  // ── Finance Application (BANK_FINANCING deals) ──────────────────────────
+
+  @Post(':id/finance-application')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  createFinanceApplication(@Param('id') id: string, @Body() body: any) {
+    return this.svc.createFinanceApplication(id, body);
+  }
+
+  @Patch(':id/finance-application')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  updateFinanceApplication(@Param('id') id: string, @Body() body: any) {
+    return this.svc.updateFinanceApplication(id, body);
+  }
+
+  @Post(':id/finance-application/documents')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  addDocument(@Param('id') id: string, @Body() body: { documentType: string; fileUrl?: string; notes?: string }) {
+    return this.svc.addDocument(id, body);
+  }
+
+  @Patch(':id/finance-application/documents/:docId')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  updateDocument(
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Body() body: { status?: string; fileUrl?: string; notes?: string },
+  ) {
+    return this.svc.updateDocument(id, docId, body);
+  }
+
+  @Post(':id/finance-application/bank-approval')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  recordBankApproval(@Param('id') id: string, @Body() body: any) {
+    return this.svc.recordBankApproval(id, body);
+  }
 }
