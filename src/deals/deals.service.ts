@@ -318,12 +318,44 @@ export class DealsService {
 
   // ── Commission splits ─────────────────────────────────────────────────────
 
+  private async resolveCommissionAmount(baseAmount: number, splitPercentage: number, commissionPlanId?: string): Promise<number> {
+    if (!commissionPlanId) return (baseAmount * splitPercentage) / 100;
+
+    const plan = await this.prisma.commissionPlan.findUnique({
+      where: { id: commissionPlanId },
+      include: { tiers: { orderBy: { minValue: 'asc' } } },
+    });
+    if (!plan) return (baseAmount * splitPercentage) / 100;
+
+    let planRate = 0;
+    if (plan.basisType === 'FLAT_AMOUNT') {
+      planRate = Number(plan.flatAmount ?? 0);
+      return (planRate * splitPercentage) / 100;
+    }
+    if (plan.basisType === 'PERCENT_OF_SALE_PRICE' || plan.basisType === 'PERCENT_OF_GROSS_PROFIT') {
+      planRate = Number(plan.percentage ?? 0);
+      return (baseAmount * planRate / 100 * splitPercentage) / 100;
+    }
+    if (plan.basisType === 'TIERED') {
+      // Find the applicable tier by minValue threshold
+      const applicableTier = [...plan.tiers].reverse().find((t) => baseAmount >= Number(t.minValue));
+      if (!applicableTier) return 0;
+      const tierBase = applicableTier.rateType === 'FLAT_AMOUNT'
+        ? Number(applicableTier.rateValue)
+        : baseAmount * Number(applicableTier.rateValue) / 100;
+      return (tierBase * splitPercentage) / 100;
+    }
+    return (baseAmount * splitPercentage) / 100;
+  }
+
   async addCommissionSplit(dealId: string, data: {
     userId: string; roleInDeal: string; commissionPlanId?: string;
     baseAmount: number; splitPercentage: number;
   }, userId: string) {
     const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id: dealId } });
     if (deal.status === 'FINALIZED') throw new BadRequestException('Cannot modify commissions on a finalized deal');
+
+    const calculatedAmount = await this.resolveCommissionAmount(data.baseAmount, data.splitPercentage, data.commissionPlanId);
 
     const commission = await this.prisma.dealCommission.create({
       data: {
@@ -333,7 +365,7 @@ export class DealsService {
         commissionPlanId: data.commissionPlanId,
         baseAmount: data.baseAmount,
         splitPercentage: data.splitPercentage,
-        calculatedAmount: (data.baseAmount * data.splitPercentage) / 100,
+        calculatedAmount,
         status: 'ACCRUED',
       },
       include: { user: { select: { id: true, name: true } }, commissionPlan: { select: { name: true } } },

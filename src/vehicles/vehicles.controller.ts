@@ -67,4 +67,10 @@ export class VehiclesController {
   deleteImage(@Param('id') id: string, @Param('imageId') imageId: string) {
     return this.vehiclesService.deleteImage(id, imageId);
   }
+
+  @Post('bulk-import')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  bulkImport(@Body() body: { csv: string }) {
+    return this.vehiclesService.bulkImport(body.csv);
+  }
 }

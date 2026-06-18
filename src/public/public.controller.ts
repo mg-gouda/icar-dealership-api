@@ -1,11 +1,15 @@
 import { Controller, Post, Body, Get, Query, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { LeadsService } from '../leads/leads.service';
 
 @ApiTags('Public')
 @Controller({ path: 'public', version: '1' })
 export class PublicController {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private leadsService: LeadsService,
+  ) {}
 
   @Get('vehicles')
   @ApiOperation({ summary: 'List available vehicles for B2C site' })
@@ -59,6 +63,15 @@ export class PublicController {
     });
   }
 
+  @Get('locations')
+  @ApiOperation({ summary: 'List company locations for B2C site' })
+  async listLocations() {
+    return this.prisma.location.findMany({
+      select: { id: true, name: true, address: true, city: true, phone: true, businessHours: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   @Post('leads')
   @ApiOperation({ summary: 'Submit a lead from the B2C website (no auth required)' })
   async createLead(@Body() body: {
@@ -67,23 +80,24 @@ export class PublicController {
     email?: string;
     source?: string;
     vehicleId?: string;
+    locationId?: string;
     notes?: string;
   }) {
-    // resolve the default location (first active location of the company)
-    const location = await this.prisma.location.findFirst({
+    // Resolve location: use provided locationId or fall back to first active location
+    const locationId = body.locationId ?? (await this.prisma.location.findFirst({
       orderBy: { createdAt: 'asc' },
-    });
-    if (!location) throw new Error('No location configured');
-    return this.prisma.lead.create({
-      data: {
-        name: body.name,
-        phone: body.phone,
-        email: body.email,
-        source: (body.source as any) ?? 'WEBSITE',
-        vehicleId: body.vehicleId || undefined,
-        notes: body.notes,
-        locationId: location.id,
-      },
-    });
+      select: { id: true },
+    }))?.id;
+    if (!locationId) throw new Error('No location configured');
+    // ponytail: 'system' sentinel userId — public endpoint has no auth user
+    return this.leadsService.create({
+      locationId,
+      name: body.name,
+      phone: body.phone,
+      email: body.email,
+      source: body.source ?? 'WEBSITE',
+      vehicleId: body.vehicleId || undefined,
+      notes: body.notes,
+    }, 'system');
   }
 }

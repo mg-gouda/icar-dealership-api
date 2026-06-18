@@ -99,4 +99,56 @@ export class VehiclesService {
   async deleteImage(vehicleId: string, imageId: string) {
     return this.prisma.vehicleImage.delete({ where: { id: imageId, vehicleId } });
   }
+
+  async bulkImport(csvText: string): Promise<{ created: number; errors: { row: number; error: string }[] }> {
+    const lines = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter((l) => l.trim());
+    if (lines.length < 2) return { created: 0, errors: [{ row: 0, error: 'CSV must have a header row and at least one data row' }] };
+
+    const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
+    const errors: { row: number; error: string }[] = [];
+    let created = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
+      const row: Record<string, string> = {};
+      headers.forEach((h, idx) => { row[h] = values[idx] ?? ''; });
+
+      try {
+        const price = parseFloat(row['price'] ?? '0');
+        const year = parseInt(row['year'] ?? '0', 10);
+        const mileage = parseInt(row['mileage'] ?? '0', 10);
+
+        if (!row['make']) throw new Error('make is required');
+        if (!row['model']) throw new Error('model is required');
+        if (!year) throw new Error('year is required');
+        if (!row['locationid'] && !row['locationId']) throw new Error('locationId is required');
+        if (!price) throw new Error('price is required');
+
+        const vehicleData: any = {
+          make: row['make'],
+          model: row['model'],
+          year,
+          price,
+          condition: row['condition']?.toUpperCase() || 'NEW',
+          status: row['status']?.toUpperCase() || 'AVAILABLE',
+          locationId: row['locationid'] || row['locationId'],
+        };
+        if (row['trim']) vehicleData.trim = row['trim'];
+        if (row['vin']) vehicleData.vin = row['vin'];
+        if (row['bodytype'] || row['bodyType']) vehicleData.bodyType = row['bodytype'] || row['bodyType'];
+        if (row['color']) vehicleData.color = row['color'];
+        if (row['fueltype'] || row['fuelType']) vehicleData.fuelType = row['fueltype'] || row['fuelType'];
+        if (row['transmission']) vehicleData.transmission = row['transmission'].toUpperCase();
+        if (mileage) vehicleData.mileage = mileage;
+        if (row['description']) vehicleData.description = row['description'];
+
+        await this.prisma.vehicle.create({ data: vehicleData });
+        created++;
+      } catch (e: unknown) {
+        errors.push({ row: i + 1, error: e instanceof Error ? e.message : 'Unknown error' });
+      }
+    }
+
+    return { created, errors };
+  }
 }
