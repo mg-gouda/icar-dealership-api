@@ -94,4 +94,24 @@ export class DealsController {
   recordBankApproval(@Param('id') id: string, @Body() body: any) {
     return this.svc.recordBankApproval(id, body);
   }
+
+  // ── Installment collection ────────────────────────────────────────────────
+
+  @Post(':id/installment-plan/lines/:lineId/collect')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  collectInstallment(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Request() req: any,
+  ) {
+    return this.svc.collectInstallment(id, lineId, req.user.id);
+  }
+
+  // ── Bank financing disbursement ───────────────────────────────────────────
+
+  @Post(':id/bank-disbursement')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  postBankDisbursement(@Param('id') id: string, @Request() req: any) {
+    return this.svc.postBankDisbursement(id, req.user.id);
+  }
 }

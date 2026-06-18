@@ -44,6 +44,18 @@ export class AccountsController {
     return this.svc.update(id, req.user.companyId, body, req.user.id);
   }
 
+  @Patch(':id/deactivate')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  deactivate(@Param('id') id: string, @Request() req: any) {
+    return this.svc.setActive(id, req.user.companyId, false, req.user.id);
+  }
+
+  @Patch(':id/activate')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  activate(@Param('id') id: string, @Request() req: any) {
+    return this.svc.setActive(id, req.user.companyId, true, req.user.id);
+  }
+
   @Delete(':id')
   @Roles('ADMIN', 'SUPER_ADMIN')
   delete(@Param('id') id: string, @Request() req: any) {

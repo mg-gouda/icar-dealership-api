@@ -691,6 +691,7 @@ model Account {
   children Account[] @relation("AccountHierarchy")
 
   reconcilable Boolean @default(false)
+  isActive     Boolean @default(true)
 
   currencyId String?
   currency   Currency? @relation(fields: [currencyId], references: [id])

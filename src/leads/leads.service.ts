@@ -77,11 +77,10 @@ export class LeadsService {
   }
 
   async addActivity(leadId: string, data: {
-    type: string; note?: string;
+    type: string; note?: string; notes?: string; outcome?: string;
   }, userId: string) {
-    // LeadActivity: leadId, userId, type, note
     const activity = await this.prisma.leadActivity.create({
-      data: { leadId, userId, type: data.type, note: data.note },
+      data: { leadId, userId, type: data.type, note: data.note ?? data.notes },
     });
     return activity;
   }

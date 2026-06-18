@@ -114,6 +114,14 @@ export class AccountsService {
     return { deleted: true };
   }
 
+  async setActive(id: string, companyId: string, isActive: boolean, userId: string) {
+    const account = await this.prisma.account.findFirst({ where: { id, companyId } });
+    if (!account) throw new NotFoundException('Account not found');
+    const updated = await this.prisma.account.update({ where: { id }, data: { isActive } });
+    await this.audit.log({ userId, action: isActive ? 'ACTIVATE' : 'DEACTIVATE', entity: 'Account', entityId: id });
+    return updated;
+  }
+
   // Tree view — flat list, no pagination
   async listTree(companyId: string) {
     return this.prisma.account.findMany({

@@ -189,6 +189,40 @@ export class DealsService {
     return plan;
   }
 
+  // ── Installment collection ────────────────────────────────────────────────
+
+  async collectInstallment(dealId: string, lineId: string, userId: string) {
+    // Verify line belongs to this deal
+    const line = await this.prisma.installmentLine.findUniqueOrThrow({
+      where: { id: lineId },
+      include: { installmentPlan: true },
+    });
+    if (line.installmentPlan.dealId !== dealId) {
+      throw new BadRequestException('Installment line does not belong to this deal');
+    }
+    if (line.status === 'PAID') {
+      throw new BadRequestException('Installment line already paid');
+    }
+    await this.posting.postInstallment(lineId, userId);
+    await this.audit.log({ entity: 'InstallmentLine', entityId: lineId, action: 'COLLECT', userId });
+    return this.findById(dealId);
+  }
+
+  // ── Bank disbursement ─────────────────────────────────────────────────────
+
+  async postBankDisbursement(dealId: string, userId: string) {
+    const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id: dealId } });
+    if (deal.purchaseMethod !== 'BANK_FINANCING') {
+      throw new BadRequestException('Deal is not BANK_FINANCING');
+    }
+    if (deal.status !== 'FINALIZED') {
+      throw new BadRequestException('Deal must be FINALIZED before recording disbursement');
+    }
+    await this.posting.postBankDisbursement(dealId, userId);
+    await this.audit.log({ entity: 'Deal', entityId: dealId, action: 'BANK_DISBURSEMENT', userId });
+    return this.findById(dealId);
+  }
+
   // ── Finance Application ────────────────────────────────────────────────────
 
   async createFinanceApplication(dealId: string, data: any) {
