@@ -259,6 +259,58 @@ export class GlService {
     return { generated };
   }
 
+  // -- Recurring template CRUD --
+
+  listRecurring(companyId: string) {
+    return this.prisma.recurringJournalEntryTemplate.findMany({
+      where: { journal: { companyId } },
+      include: {
+        journal: { select: { id: true, code: true, name: true } },
+        lines: { include: { account: { select: { id: true, code: true, name: true } } } },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async createRecurring(data: {
+    name: string;
+    journalId: string;
+    recurrence: string;
+    nextRunDate: string;
+    lines: Array<{ accountId: string; debit?: number; credit?: number; label?: string }>;
+  }, userId: string) {
+    this.validateLines(data.lines);
+    const template = await this.prisma.recurringJournalEntryTemplate.create({
+      data: {
+        name: data.name,
+        journalId: data.journalId,
+        recurrence: data.recurrence,
+        nextRunDate: new Date(data.nextRunDate),
+        active: true,
+        lines: {
+          create: data.lines.map((l) => ({
+            accountId: l.accountId,
+            debit: l.debit ?? 0,
+            credit: l.credit ?? 0,
+            label: l.label,
+          })),
+        },
+      },
+      include: { lines: true },
+    });
+    await this.audit.log({ entity: 'RecurringJournalEntryTemplate', entityId: template.id, action: 'CREATE', userId, newValue: template });
+    return template;
+  }
+
+  async deleteRecurring(id: string, userId: string) {
+    const tmpl = await this.prisma.recurringJournalEntryTemplate.findUnique({ where: { id } });
+    if (!tmpl) throw new NotFoundException(`Recurring template ${id} not found`);
+    await this.prisma.recurringJournalEntryTemplateLine.deleteMany({ where: { templateId: id } });
+    await this.prisma.recurringJournalEntryTemplate.delete({ where: { id } });
+    await this.audit.log({ entity: 'RecurringJournalEntryTemplate', entityId: id, action: 'DELETE', userId });
+    return { deleted: true };
+  }
+
   // -- Private helpers --
 
   private validateLines(lines: Array<{ debit?: number; credit?: number }>) {

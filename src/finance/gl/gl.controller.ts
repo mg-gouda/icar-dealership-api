@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Request,
+  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { GlService } from './gl.service';
@@ -82,5 +82,24 @@ export class GlController {
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   generateRecurring(@Body() body: any, @Request() req: any) {
     return this.svc.generateRecurring(req.user.companyId, body.date ? new Date(body.date) : new Date(), req.user.id);
+  }
+
+  // Recurring template CRUD
+  @Get('recurring')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  listRecurring(@Request() req: any) {
+    return this.svc.listRecurring(req.user.companyId);
+  }
+
+  @Post('recurring')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  createRecurring(@Body() body: any, @Request() req: any) {
+    return this.svc.createRecurring(body, req.user.id);
+  }
+
+  @Delete('recurring/:id')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  deleteRecurring(@Param('id') id: string, @Request() req: any) {
+    return this.svc.deleteRecurring(id, req.user.id);
   }
 }

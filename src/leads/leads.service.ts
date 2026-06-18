@@ -51,6 +51,12 @@ export class LeadsService {
     email?: string; source?: string; vehicleId?: string;
     assignedToUserId?: string; notes?: string;
   }, userId: string) {
+    // Auto-assign via least-loaded SALES_REP when no assignee provided
+    let assignedToUserId = data.assignedToUserId ?? undefined;
+    if (!assignedToUserId) {
+      assignedToUserId = await this.leastLoadedSalesRep(data.locationId) ?? undefined;
+    }
+
     const lead = await this.prisma.lead.create({
       data: {
         locationId: data.locationId,
@@ -59,13 +65,37 @@ export class LeadsService {
         email: data.email,
         source: (data.source as any) ?? 'WEBSITE',
         vehicleId: data.vehicleId,
-        assignedToUserId: data.assignedToUserId,
+        assignedToUserId,
         notes: data.notes,
         status: 'NEW',
       },
     });
     await this.audit.log({ entity: 'Lead', entityId: lead.id, action: 'CREATE', userId, newValue: lead });
     return lead;
+  }
+
+  /** Returns the id of the SALES_REP at locationId with fewest open leads, or null if none. */
+  private async leastLoadedSalesRep(locationId: string): Promise<string | null> {
+    const reps = await this.prisma.user.findMany({
+      where: { role: 'SALES_REP', locationId, isActive: true },
+      select: { id: true },
+    });
+    if (reps.length === 0) return null;
+
+    const openCounts = await Promise.all(
+      reps.map(async (r) => {
+        const count = await this.prisma.lead.count({
+          where: {
+            assignedToUserId: r.id,
+            status: { in: ['NEW', 'CONTACTED', 'QUALIFIED'] },
+          },
+        });
+        return { id: r.id, count };
+      }),
+    );
+
+    openCounts.sort((a, b) => a.count - b.count);
+    return openCounts[0].id;
   }
 
   async update(id: string, data: Partial<{

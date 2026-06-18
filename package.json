@@ -17,6 +17,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e:api": "jest --config ../Project_Test/jest.e2e.config.ts --no-coverage",
     "test:project": "jest --config ../Project_Test/jest.config.ts --no-coverage",
     "test:project:cov": "jest --config ../Project_Test/jest.config.ts --coverage --coverageDirectory ../Project_Test/coverage",
     "prisma:generate": "prisma generate",
