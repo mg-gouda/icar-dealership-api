@@ -116,6 +116,34 @@ export class PaymentsService {
     return updated;
   }
 
+  async allocate(id: string, invoiceId: string, amount: number, userId: string) {
+    const payment = await this.prisma.payment.findUniqueOrThrow({ where: { id } });
+    if (payment.status !== 'POSTED') throw new BadRequestException('Only POSTED payments can be allocated');
+
+    const invoice = await this.prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    if (invoice.status !== 'POSTED') throw new BadRequestException('Can only allocate against POSTED invoices');
+
+    const residual = Number(invoice.amountResidual ?? invoice.amountTotal);
+    if (amount > residual) throw new BadRequestException(`Allocation amount exceeds invoice residual (${residual})`);
+
+    const allocation = await this.prisma.$transaction(async (tx) => {
+      const alloc = await tx.paymentAllocation.create({
+        data: { paymentId: id, invoiceId, amount },
+      });
+      const newResidual = residual - amount;
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          amountResidual: newResidual,
+          paymentStatus: newResidual <= 0 ? 'PAID' : 'PARTIAL',
+        },
+      });
+      return alloc;
+    });
+    await this.audit.log({ entity: 'Payment', entityId: id, action: 'ALLOCATE', userId, newValue: { invoiceId, amount } });
+    return allocation;
+  }
+
   async cancel(id: string, userId: string) {
     const p = await this.prisma.payment.findUniqueOrThrow({
       where: { id },

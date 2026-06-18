@@ -31,12 +31,21 @@ export class CommissionPlansService {
     });
   }
 
-  update(id: string, data: any) {
+  async update(id: string, data: any) {
     const { tiers, ...rest } = data;
+    if (tiers !== undefined) {
+      // Replace all tiers atomically
+      await this.prisma.$transaction([
+        this.prisma.commissionTier.deleteMany({ where: { commissionPlanId: id } }),
+        ...(tiers.length > 0 ? [this.prisma.commissionTier.createMany({
+          data: tiers.map((t: any) => ({ ...t, commissionPlanId: id })),
+        })] : []),
+      ]);
+    }
     return this.prisma.commissionPlan.update({
       where: { id },
       data: rest,
-      include: { tiers: true },
+      include: { tiers: { orderBy: { minValue: 'asc' } } },
     });
   }
 }

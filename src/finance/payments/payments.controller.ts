@@ -43,4 +43,14 @@ export class PaymentsController {
   cancel(@Param('id') id: string, @Request() req: any) {
     return this.svc.cancel(id, req.user.id);
   }
+
+  @Post(':id/allocate')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  allocate(
+    @Param('id') id: string,
+    @Body() body: { invoiceId: string; amount: number },
+    @Request() req: any,
+  ) {
+    return this.svc.allocate(id, body.invoiceId, body.amount, req.user.id);
+  }
 }
