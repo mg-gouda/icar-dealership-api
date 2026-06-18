@@ -77,4 +77,10 @@ export class GlController {
   trialBalance(@Query() q: any, @Request() req: any) {
     return this.svc.trialBalance(req.user.companyId, q.dateFrom, q.dateTo);
   }
+
+  @Post('generate-recurring')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  generateRecurring(@Body() body: any, @Request() req: any) {
+    return this.svc.generateRecurring(req.user.companyId, body.date ? new Date(body.date) : new Date(), req.user.id);
+  }
 }

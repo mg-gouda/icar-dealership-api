@@ -218,6 +218,47 @@ export class GlService {
     return [...map.values()].sort((a, b) => a.account.code.localeCompare(b.account.code));
   }
 
+  // -- Recurring templates --
+
+  async generateRecurring(companyId: string, asOf: Date, userId: string) {
+    const templates = await this.prisma.recurringJournalEntryTemplate.findMany({
+      where: { journal: { companyId }, active: true, nextRunDate: { lte: asOf } },
+      include: { lines: true, journal: true },
+    });
+
+    let generated = 0;
+    await this.prisma.$transaction(async (tx) => {
+      for (const tmpl of templates) {
+        const totalDebit = tmpl.lines.reduce((s, l) => s + Number(l.debit), 0);
+        const totalCredit = tmpl.lines.reduce((s, l) => s + Number(l.credit), 0);
+        if (Math.abs(totalDebit - totalCredit) > 0.01) continue; // skip unbalanced
+
+        await tx.journalEntry.create({
+          data: {
+            journalId: tmpl.journalId,
+            date: asOf,
+            ref: `REC-${tmpl.name.slice(0, 8).toUpperCase()}-${asOf.toISOString().slice(0, 7)}`,
+            status: 'POSTED',
+            recurringTemplateId: tmpl.id,
+            lines: { create: tmpl.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit, label: l.label ?? undefined })) },
+          },
+        });
+
+        // Advance nextRunDate by recurrence period
+        const next = new Date(tmpl.nextRunDate);
+        if (tmpl.recurrence === 'MONTHLY') next.setMonth(next.getMonth() + 1);
+        else if (tmpl.recurrence === 'QUARTERLY') next.setMonth(next.getMonth() + 3);
+        else if (tmpl.recurrence === 'YEARLY') next.setFullYear(next.getFullYear() + 1);
+
+        await tx.recurringJournalEntryTemplate.update({ where: { id: tmpl.id }, data: { nextRunDate: next } });
+        generated++;
+      }
+    });
+
+    await this.audit.log({ userId, action: 'GENERATE_RECURRING', entity: 'JournalEntry', entityId: companyId, changes: { generated } });
+    return { generated };
+  }
+
   // -- Private helpers --
 
   private validateLines(lines: Array<{ debit?: number; credit?: number }>) {

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Request, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -48,5 +48,19 @@ export class ReportsController {
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   agedPayables(@Request() req: any, @Query() q: any) {
     return this.svc.agedPayables(req.user.companyId, new Date(q.asOf ?? Date.now()));
+  }
+
+  @Get('gl-by-account')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  glByAccount(@Request() req: any, @Query() q: any) {
+    if (!q.accountId) throw new BadRequestException('accountId required');
+    return this.svc.glByAccount(
+      req.user.companyId,
+      q.accountId,
+      q.dateFrom ? new Date(q.dateFrom) : undefined,
+      q.dateTo ? new Date(q.dateTo) : undefined,
+      Number(q.page ?? 1),
+      Number(q.limit ?? 50),
+    );
   }
 }

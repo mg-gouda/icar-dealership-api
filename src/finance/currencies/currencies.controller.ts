@@ -69,4 +69,10 @@ export class CurrenciesController {
   deleteRate(@Param('id') id: string, @Request() req: any) {
     return this.svc.deleteRate(id, req.user.id);
   }
+
+  @Post('revaluate')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  revaluate(@Request() req: any) {
+    return this.svc.revaluate(req.user.companyId, req.user.id);
+  }
 }

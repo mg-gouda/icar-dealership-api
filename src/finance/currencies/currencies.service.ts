@@ -131,6 +131,70 @@ export class CurrenciesService {
     return { deleted: true };
   }
 
+  async revaluate(companyId: string, userId: string) {
+    // Find open foreign-currency GL lines with amountCurrency set
+    const openLines = await this.prisma.journalEntryLine.findMany({
+      where: {
+        currencyId: { not: null },
+        amountCurrency: { not: null },
+        reconciled: false,
+        journalEntry: { status: 'POSTED', journal: { companyId } },
+      },
+      include: { journalEntry: { include: { journal: true } } },
+    });
+
+    if (openLines.length === 0) return { revaluedCount: 0, totalVariance: 0 };
+
+    // Resolve 8100 (Unrealized Exchange Gain/Loss)
+    const fxAccount = await this.prisma.account.findFirst({ where: { companyId, code: '8100' } });
+    if (!fxAccount) throw new Error('COA account 8100 (Unrealized Exchange Gain/Loss) not found. Run seed first.');
+
+    // Get a GENERAL journal for the company
+    const generalJournal = await this.prisma.journal.findFirst({ where: { companyId, type: 'GENERAL' } });
+    if (!generalJournal) throw new Error('No GENERAL journal found for company. Run seed first.');
+
+    const today = new Date();
+    let revaluedCount = 0;
+    let totalVariance = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const line of openLines) {
+        if (!line.currencyId || !line.amountCurrency) continue;
+
+        const latestRate = await tx.currencyRate.findFirst({
+          where: { currencyId: line.currencyId, date: { lte: today } },
+          orderBy: { date: 'desc' },
+        });
+        if (!latestRate) continue;
+
+        const fxAmount = Number(line.amountCurrency) * Number(latestRate.rate);
+        const bookValue = Number(line.debit) > 0 ? Number(line.debit) : -Number(line.credit);
+        const variance = fxAmount - bookValue;
+        if (Math.abs(variance) < 0.01) continue;
+
+        await tx.journalEntry.create({
+          data: {
+            journalId: generalJournal.id,
+            date: today,
+            ref: `REVAL-${today.toISOString().slice(0, 10)}`,
+            status: 'POSTED',
+            lines: {
+              create: [
+                { accountId: line.accountId, debit: variance > 0 ? variance : 0, credit: variance < 0 ? -variance : 0, label: 'FX Revaluation adjustment' },
+                { accountId: fxAccount.id, debit: variance < 0 ? -variance : 0, credit: variance > 0 ? variance : 0, label: 'Unrealized Exchange Gain/Loss' },
+              ],
+            },
+          },
+        });
+        revaluedCount++;
+        totalVariance += variance;
+      }
+    });
+
+    await this.audit.log({ userId, action: 'REVALUATE', entity: 'Currency', entityId: companyId, changes: { revaluedCount, totalVariance } });
+    return { revaluedCount, totalVariance: Math.round(totalVariance * 100) / 100 };
+  }
+
   async importRates(data: {
     currencyId: string;
     rates: Array<{ date: string; rate: number }>;

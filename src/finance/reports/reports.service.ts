@@ -226,4 +226,29 @@ export class ReportsService {
 
     return Array.from(partnerMap.values()).sort((a, b) => a.partnerName.localeCompare(b.partnerName));
   }
+
+  async glByAccount(companyId: string, accountId: string, dateFrom?: Date, dateTo?: Date, page = 1, limit = 50) {
+    const where: any = {
+      accountId,
+      journalEntry: {
+        status: 'POSTED',
+        journal: { companyId },
+        ...(dateFrom || dateTo ? { date: { ...(dateFrom && { gte: dateFrom }), ...(dateTo && { lte: dateTo }) } } : {}),
+      },
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.journalEntryLine.findMany({
+        where,
+        include: {
+          account: { select: { code: true, name: true } },
+          journalEntry: { select: { id: true, ref: true, date: true, status: true } },
+        },
+        orderBy: { journalEntry: { date: 'desc' } },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.journalEntryLine.count({ where }),
+    ]);
+    return { items, total, page, limit };
+  }
 }
