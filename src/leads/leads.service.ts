@@ -87,11 +87,40 @@ export class LeadsService {
   }
 
   async convertToDeal(leadId: string, userId: string) {
-    const lead = await this.prisma.lead.update({
+    const lead = await this.prisma.lead.findUniqueOrThrow({
       where: { id: leadId },
-      data: { status: 'CLOSED_WON' },
+      include: { location: true },
     });
-    await this.audit.log({ entity: 'Lead', entityId: leadId, action: 'CONVERT', userId, newValue: { status: 'CLOSED_WON' } });
-    return lead;
+
+    // Mark lead won
+    await this.prisma.lead.update({ where: { id: leadId }, data: { status: 'CLOSED_WON' } });
+
+    // Create a draft deal if customer + vehicle are known; otherwise return lead
+    if (!lead.customerId || !lead.vehicleId) {
+      await this.audit.log({ entity: 'Lead', entityId: leadId, action: 'CONVERT', userId, newValue: { status: 'CLOSED_WON' } });
+      return { id: null, leadId };
+    }
+
+    const location = lead.location;
+    const deal = await this.prisma.deal.create({
+      data: {
+        locationId: lead.locationId,
+        vehicleId: lead.vehicleId,
+        customerId: lead.customerId,
+        salesRepId: lead.assignedToUserId ?? userId,
+        leadId: lead.id,
+        purchaseMethod: 'CASH',
+        salePrice: 0, // to be set by sales rep
+        adminFee: Number(location.defaultAdminFee ?? 0),
+        insuranceFee: Number(location.defaultInsuranceFee ?? 0),
+        status: 'DRAFT',
+      },
+    });
+
+    // Mark vehicle RESERVED
+    await this.prisma.vehicle.update({ where: { id: lead.vehicleId }, data: { status: 'RESERVED' } });
+
+    await this.audit.log({ entity: 'Lead', entityId: leadId, action: 'CONVERT', userId, newValue: { dealId: deal.id } });
+    return deal;
   }
 }
