@@ -1,12 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
+import { PostingService } from '../posting/posting.service';
 
 @Injectable()
 export class PaymentsService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private posting: PostingService,
   ) {}
 
   findAll(companyId: string, query: {
@@ -105,15 +107,9 @@ export class PaymentsService {
   }
 
   async postPayment(id: string, userId: string) {
-    const p = await this.prisma.payment.findUniqueOrThrow({ where: { id } });
-    if (p.status !== 'DRAFT') throw new BadRequestException('Payment not in DRAFT state');
-
-    const updated = await this.prisma.payment.update({
-      where: { id },
-      data: { status: 'POSTED' },
-    });
+    await this.posting.postPayment(id);
     await this.audit.log({ entity: 'Payment', entityId: id, action: 'POST', userId });
-    return updated;
+    return this.findById(id);
   }
 
   async allocate(id: string, invoiceId: string, amount: number, userId: string) {

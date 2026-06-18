@@ -11,7 +11,7 @@ export class UsersService {
       where: locationId ? { locationId } : undefined,
       select: {
         id: true, email: true, name: true, phone: true, role: true,
-        locationId: true, createdAt: true,
+        locationId: true, isActive: true, createdAt: true,
       },
     });
   }
@@ -58,6 +58,15 @@ export class UsersService {
       where: { id },
       data: dto as any,
       select: { id: true, email: true, name: true, role: true, locationId: true, updatedAt: true },
+    });
+  }
+
+  async setActive(id: string, isActive: boolean) {
+    await this.findById(id);
+    return this.prisma.user.update({
+      where: { id },
+      data: { isActive },
+      select: { id: true, isActive: true },
     });
   }
 }

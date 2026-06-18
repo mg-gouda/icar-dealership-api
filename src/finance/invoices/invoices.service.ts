@@ -1,12 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
+import { PostingService } from '../posting/posting.service';
 
 @Injectable()
 export class InvoicesService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private posting: PostingService,
   ) {}
 
   findAll(companyId: string, query: {
@@ -101,34 +103,9 @@ export class InvoicesService {
   }
 
   async post(id: string, userId: string) {
-    const inv = await this.prisma.invoice.findUniqueOrThrow({
-      where: { id },
-      include: { lines: { include: { tax: true } } },
-    });
-    if (inv.status !== 'DRAFT') throw new BadRequestException('Invoice not in DRAFT state');
-
-    // compute tax
-    let taxAmount = 0;
-    for (const line of inv.lines) {
-      if (line.tax) {
-        const rate = Number(line.tax.amount ?? 0);
-        // tax.amount stores the percentage (e.g. 14 for 14%)
-        taxAmount += Number(line.subtotal) * (rate / 100);
-      }
-    }
-    const total = Number(inv.amountUntaxed) + taxAmount;
-
-    const posted = await this.prisma.invoice.update({
-      where: { id },
-      data: {
-        status: 'POSTED',
-        amountTax: taxAmount,
-        amountTotal: total,
-        amountResidual: total,
-      },
-    });
+    await this.posting.postInvoice(id);
     await this.audit.log({ entity: 'Invoice', entityId: id, action: 'POST', userId });
-    return posted;
+    return this.findById(id);
   }
 
   async cancel(id: string, userId: string) {
@@ -141,5 +118,38 @@ export class InvoicesService {
     });
     await this.audit.log({ entity: 'Invoice', entityId: id, action: 'CANCEL', userId });
     return updated;
+  }
+
+  async addLine(invoiceId: string, dto: {
+    description: string; quantity: number; unitPrice: number;
+    accountId: string; taxId?: string;
+  }, userId: string) {
+    const inv = await this.prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    if (inv.status !== 'DRAFT') throw new BadRequestException('Can only add lines to DRAFT invoices');
+
+    const lineSubtotal = Number(dto.quantity) * Number(dto.unitPrice);
+    const line = await this.prisma.invoiceLine.create({
+      data: {
+        invoiceId,
+        description: dto.description,
+        quantity: dto.quantity,
+        unitPrice: dto.unitPrice,
+        subtotal: lineSubtotal,
+        accountId: dto.accountId,
+        taxId: dto.taxId || undefined,
+      },
+      include: { account: true, tax: true },
+    });
+
+    // recompute invoice totals
+    const allLines = await this.prisma.invoiceLine.findMany({ where: { invoiceId } });
+    const newSubtotal = allLines.reduce((s, l) => s + Number(l.subtotal), 0);
+    await this.prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { amountUntaxed: newSubtotal, amountTotal: newSubtotal, amountResidual: newSubtotal },
+    });
+
+    await this.audit.log({ entity: 'Invoice', entityId: invoiceId, action: 'ADD_LINE', userId, newValue: line });
+    return line;
   }
 }

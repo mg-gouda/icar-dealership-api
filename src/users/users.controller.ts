@@ -35,4 +35,16 @@ export class UsersController {
   update(@Param('id') id: string, @Body() body: any) {
     return this.usersService.update(id, body);
   }
+
+  @Patch(':id/deactivate')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  deactivate(@Param('id') id: string) {
+    return this.usersService.setActive(id, false);
+  }
+
+  @Patch(':id/activate')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  activate(@Param('id') id: string) {
+    return this.usersService.setActive(id, true);
+  }
 }

@@ -325,6 +325,106 @@ export class PostingService {
     });
   }
 
+  // -- Invoice / Payment GL Posting --
+
+  async postInvoice(invoiceId: string): Promise<void> {
+    const inv = await this.prisma.invoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      include: { journal: true, lines: { include: { tax: true } } },
+    });
+    if (inv.status !== 'DRAFT') throw new BadRequestException('Invoice not in DRAFT state');
+
+    await this.assertFiscalPeriodOpen(inv.date, inv.journal.companyId);
+
+    let taxAmount = 0;
+    for (const line of inv.lines) {
+      if (line.tax) taxAmount += Number(line.subtotal) * (Number(line.tax.amount) / 100);
+    }
+    const total = Number(inv.amountUntaxed) + taxAmount;
+
+    const isCustomer = inv.type === 'CUSTOMER_INVOICE' || inv.type === 'CUSTOMER_CREDIT_NOTE';
+    const prefix = isCustomer ? 'INV' : 'BILL';
+
+    let glLines: any[];
+    if (isCustomer) {
+      const accounts = await this.resolveAccounts(inv.journal.companyId, ['1300', '2200']);
+      glLines = [
+        { accountId: accounts['1300'], debit: total, credit: 0, partnerId: inv.partnerId, label: `AR - ${prefix}-${invoiceId.slice(-8).toUpperCase()}` },
+        ...inv.lines.map((l) => ({ accountId: l.accountId, debit: 0, credit: Number(l.subtotal), label: l.description })),
+        ...(taxAmount > 0 ? [{ accountId: accounts['2200'], debit: 0, credit: taxAmount, label: 'VAT 14%' }] : []),
+      ];
+    } else {
+      const accounts = await this.resolveAccounts(inv.journal.companyId, ['2100']);
+      glLines = [
+        ...inv.lines.map((l) => ({ accountId: l.accountId, debit: Number(l.subtotal), credit: 0, label: l.description })),
+        ...(taxAmount > 0 ? [{ accountId: inv.lines[0]?.accountId ?? accounts['2100'], debit: taxAmount, credit: 0, label: 'Input VAT' }] : []),
+        { accountId: accounts['2100'], debit: 0, credit: total, partnerId: inv.partnerId, label: `AP - ${prefix}-${invoiceId.slice(-8).toUpperCase()}` },
+      ];
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.journalEntry.create({
+        data: {
+          journalId: inv.journalId,
+          date: inv.date,
+          ref: `${prefix}-${invoiceId.slice(-8).toUpperCase()}`,
+          status: 'POSTED',
+          invoiceId,
+          lines: { create: glLines },
+        },
+      });
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: { status: 'POSTED', amountTax: taxAmount, amountTotal: total, amountResidual: total },
+      });
+    });
+  }
+
+  async postPayment(paymentId: string): Promise<void> {
+    const p = await this.prisma.payment.findUniqueOrThrow({
+      where: { id: paymentId },
+      include: { journal: true },
+    });
+    if (p.status !== 'DRAFT') throw new BadRequestException('Payment not in DRAFT state');
+
+    await this.assertFiscalPeriodOpen(p.date, p.journal.companyId);
+
+    const isInbound = p.type === 'CUSTOMER_PAYMENT' || p.type === 'CUSTOMER_DEPOSIT';
+    let glLines: any[];
+
+    if (isInbound) {
+      const accounts = await this.resolveAccounts(p.journal.companyId, ['1300']);
+      const bankAccountId = p.journal.defaultDebitAccountId;
+      if (!bankAccountId) throw new BadRequestException('Journal has no default debit account — configure it first');
+      glLines = [
+        { accountId: bankAccountId, debit: Number(p.amount), credit: 0, label: p.memo ?? `Payment ${paymentId.slice(-8)}` },
+        { accountId: accounts['1300'], debit: 0, credit: Number(p.amount), partnerId: p.partnerId ?? undefined, label: 'Clear AR' },
+      ];
+    } else {
+      const accounts = await this.resolveAccounts(p.journal.companyId, ['2100']);
+      const bankAccountId = p.journal.defaultCreditAccountId;
+      if (!bankAccountId) throw new BadRequestException('Journal has no default credit account — configure it first');
+      glLines = [
+        { accountId: accounts['2100'], debit: Number(p.amount), credit: 0, partnerId: p.partnerId ?? undefined, label: 'Clear AP' },
+        { accountId: bankAccountId, debit: 0, credit: Number(p.amount), label: p.memo ?? `Payment ${paymentId.slice(-8)}` },
+      ];
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.journalEntry.create({
+        data: {
+          journalId: p.journalId,
+          date: p.date,
+          ref: `PAY-${paymentId.slice(-8).toUpperCase()}`,
+          status: 'POSTED',
+          paymentId,
+          lines: { create: glLines },
+        },
+      });
+      await tx.payment.update({ where: { id: paymentId }, data: { status: 'POSTED' } });
+    });
+  }
+
   // -- Private Helpers --
 
   private async assertFiscalPeriodOpen(date: Date, companyId: string) {

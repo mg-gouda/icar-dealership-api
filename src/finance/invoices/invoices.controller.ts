@@ -43,4 +43,10 @@ export class InvoicesController {
   cancel(@Param('id') id: string, @Request() req: any) {
     return this.svc.cancel(id, req.user.id);
   }
+
+  @Post(':id/lines')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  addLine(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.svc.addLine(id, body, req.user.id);
+  }
 }
