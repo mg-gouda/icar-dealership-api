@@ -3,24 +3,60 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { generateSecret, verifyTotp, totpUri } from './totp';
 
 const TWO_FA_ROLES = ['FINANCE', 'ADMIN', 'SUPER_ADMIN'];
 
 @Injectable()
 export class AuthService {
+  // ponytail: in-memory lockout — sufficient for single-process deploy
+  private readonly loginAttempts = new Map<string, { count: number; lockedUntil: Date | null }>();
+  private readonly MAX_ATTEMPTS = 5;
+  private readonly LOCKOUT_MS = 15 * 60 * 1000; // 15 min
+
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
     private config: ConfigService,
+    private audit: AuditService,
   ) {}
 
   async validateUser(email: string, password: string) {
+    // -- Lockout check --
+    const attempt = this.loginAttempts.get(email);
+    if (attempt?.lockedUntil && attempt.lockedUntil > new Date()) {
+      throw new UnauthorizedException(
+        'Account temporarily locked — too many failed attempts. Try again later.',
+      );
+    }
+
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+    if (!user) {
+      this.recordFailedAttempt(email);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    if (!valid) {
+      this.recordFailedAttempt(email);
+      // Audit login failure (user exists → we have a valid userId for FK)
+      this.audit.log({ entity: 'Auth', entityId: user.id, action: 'LOGIN_FAILED', userId: user.id }).catch(() => {});
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Success → clear lockout
+    this.loginAttempts.delete(email);
     return user;
+  }
+
+  private recordFailedAttempt(email: string) {
+    const existing = this.loginAttempts.get(email) ?? { count: 0, lockedUntil: null };
+    existing.count += 1;
+    if (existing.count >= this.MAX_ATTEMPTS) {
+      existing.lockedUntil = new Date(Date.now() + this.LOCKOUT_MS);
+    }
+    this.loginAttempts.set(email, existing);
   }
 
   async login(user: { id: string; email: string; role: string; locationId: string | null; totpSecret: string | null; totpEnabled: boolean }) {
@@ -44,7 +80,9 @@ export class AuthService {
       return { requiresTotp: true, preAuthToken: preToken };
     }
 
-    return this.issueTokens(user);
+    const tokens = this.issueTokens(user);
+    this.audit.log({ entity: 'Auth', entityId: user.id, action: 'LOGIN', userId: user.id }).catch(() => {});
+    return tokens;
   }
 
   async setupTotp(userId: string) {
@@ -66,6 +104,7 @@ export class AuthService {
     if (!user.totpSecret) throw new BadRequestException('Run /auth/2fa/setup first');
     if (!verifyTotp(user.totpSecret, token)) throw new UnauthorizedException('Invalid TOTP code');
     await this.prisma.user.update({ where: { id: userId }, data: { totpEnabled: true } });
+    this.audit.log({ entity: 'Auth', entityId: userId, action: '2FA_SETUP', userId }).catch(() => {});
     return this.issueTokens(user);
   }
 
@@ -76,7 +115,9 @@ export class AuthService {
     });
     if (!user.totpEnabled || !user.totpSecret) throw new ForbiddenException('2FA not configured');
     if (!verifyTotp(user.totpSecret, token)) throw new UnauthorizedException('Invalid TOTP code');
-    return this.issueTokens(user);
+    const tokens = this.issueTokens(user);
+    this.audit.log({ entity: 'Auth', entityId: userId, action: '2FA_VERIFY', userId }).catch(() => {});
+    return tokens;
   }
 
   async disableTotp(userId: string, token: string) {
