@@ -48,7 +48,8 @@ export class VehiclesService {
     return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
-  async findById(id: string, includePrivateFields = false) {
+  async findById(id: string) {
+    // ponytail: cost stripping moved to FieldPolicyInterceptor
     const vehicle = await this.prisma.vehicle.findUnique({
       where: { id },
       include: {
@@ -58,12 +59,6 @@ export class VehiclesService {
       },
     });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
-
-    // cost is field-level restricted — omit unless caller requests and is privileged
-    if (!includePrivateFields) {
-      const { cost: _cost, ...rest } = vehicle as any;
-      return rest;
-    }
     return vehicle;
   }
 

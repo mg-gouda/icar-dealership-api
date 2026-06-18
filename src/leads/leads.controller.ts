@@ -4,17 +4,20 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { LeadsService } from './leads.service';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('Leads')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, LocationScopeGuard)
 @Controller('leads')
 export class LeadsController {
   constructor(private svc: LeadsService) {}
 
   @Get()
+  @LocationScope()
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   findAll(@Query() q: any, @Request() req: any) {
     const { role, locationId: userLoc } = req.user;

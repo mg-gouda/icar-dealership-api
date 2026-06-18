@@ -2,17 +2,20 @@ import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards } from '@ne
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { PurchaseOrdersService } from './purchase-orders.service';
 
 @ApiTags('PurchaseOrders')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, LocationScopeGuard)
 @Controller({ path: 'purchase-orders', version: '1' })
 export class PurchaseOrdersController {
   constructor(private readonly svc: PurchaseOrdersService) {}
 
   @Get()
+  @LocationScope()
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   list(
     @Query('locationId') locationId?: string,

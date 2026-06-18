@@ -6,10 +6,12 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { LocationScope } from '../common/decorators/location-scope.decorator';
+import { FieldPolicyEntity } from '../common/field-policies';
 
 @ApiTags('vehicles')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard, LocationScopeGuard)
+@FieldPolicyEntity('Vehicle')
 @Controller({ path: 'vehicles', version: '1' })
 export class VehiclesController {
   constructor(private vehiclesService: VehiclesService) {}
@@ -32,9 +34,9 @@ export class VehiclesController {
 
   @Get(':id')
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  findOne(@Param('id') id: string, @Request() req: any) {
-    const isPrivileged = ['MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN'].includes(req.user?.role);
-    return this.vehiclesService.findById(id, isPrivileged);
+  findOne(@Param('id') id: string) {
+    // ponytail: field stripping now handled by FieldPolicyInterceptor
+    return this.vehiclesService.findById(id);
   }
 
   @Post()

@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException, BadRequestException, ForbiddenExcept
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
+import { randomBytes, createHash } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { generateSecret, verifyTotp, totpUri } from './totp';
@@ -159,6 +160,72 @@ export class AuthService {
     return this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { id: true, name: true, email: true, role: true, locationId: true, totpEnabled: true, createdAt: true },
+    });
+  }
+
+  // ── Logout ─────────────────────────────────────────────────────────────────
+
+  async auditLogout(userId: string) {
+    await this.audit.log({ entity: 'Auth', entityId: userId, action: 'LOGOUT', userId });
+  }
+
+  // ── Password Reset ─────────────────────────────────────────────────────────
+
+  private hashResetCode(code: string): string {
+    return createHash('sha256').update(code).digest('hex');
+  }
+
+  async forgotPassword(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) return; // ponytail: no-op silently to prevent enumeration
+
+    const code = randomBytes(3).toString('hex').toUpperCase(); // 6-char hex
+    const hashed = this.hashResetCode(code);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetToken: hashed,
+        resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000), // 1hr
+      },
+    });
+
+    // ponytail: log plaintext code for dev — production would email it
+    await this.audit.log({
+      entity: 'Auth',
+      entityId: user.id,
+      action: 'PASSWORD_RESET_REQUESTED',
+      userId: user.id,
+      newValue: { resetCode: code },
+    });
+  }
+
+  async resetPassword(email: string, code: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || !user.resetToken || !user.resetTokenExpiry) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+
+    if (user.resetTokenExpiry < new Date()) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+
+    const hashed = this.hashResetCode(code);
+    if (hashed !== user.resetToken) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, resetToken: null, resetTokenExpiry: null },
+    });
+
+    await this.audit.log({
+      entity: 'Auth',
+      entityId: user.id,
+      action: 'PASSWORD_RESET_COMPLETED',
+      userId: user.id,
     });
   }
 }

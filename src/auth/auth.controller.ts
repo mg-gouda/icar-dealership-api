@@ -2,6 +2,9 @@ import { Controller, Post, Get, Body, UseGuards, Request, HttpCode, HttpStatus }
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
+import { FIELD_POLICIES, roleAtLeast } from '../common/field-policies';
+import type { Role } from '../common/field-policies';
 
 @ApiTags('auth')
 @Controller({ path: 'auth', version: '1' })
@@ -26,6 +29,19 @@ export class AuthController {
   @Get('me')
   me(@Request() req: any) {
     return this.authService.me(req.user.sub);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('me/field-permissions')
+  @ApiOperation({ summary: 'Field-level permission map for current user' })
+  getFieldPermissions(@Request() req: any) {
+    const role: Role = req.user.role;
+    return FIELD_POLICIES.map((p) => ({
+      entity: p.entity,
+      field: p.field,
+      canRead: roleAtLeast(role, p.minRole),
+      canWrite: p.writeMinRole ? roleAtLeast(role, p.writeMinRole) : roleAtLeast(role, p.minRole),
+    }));
   }
 
   // ── 2FA setup (first-time enrollment) ──────────────────────────────────────
@@ -64,5 +80,36 @@ export class AuthController {
   @ApiOperation({ summary: 'Disable TOTP (non-privileged roles only)' })
   disable2fa(@Request() req: any, @Body('token') token: string) {
     return this.authService.disableTotp(req.user.sub, token);
+  }
+
+  // ── Logout ─────────────────────────────────────────────────────────────────
+
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Logout — audit and invalidate session indicator' })
+  async logout(@Request() req: any) {
+    await this.authService.auditLogout(req.user.sub);
+    return { message: 'Logged out' };
+  }
+
+  // ── Password Reset ─────────────────────────────────────────────────────────
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request password reset code (no auth required)' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.forgotPassword(dto.email);
+    // ponytail: constant response prevents user enumeration
+    return { message: 'If that email exists, a reset code has been sent.' };
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset password with code (no auth required)' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto.email, dto.code, dto.newPassword);
+    return { message: 'Password reset successful' };
   }
 }

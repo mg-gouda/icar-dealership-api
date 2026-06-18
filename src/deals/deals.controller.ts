@@ -4,17 +4,22 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { DealsService } from './deals.service';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { FieldPolicyEntity } from '../common/field-policies';
 
 @ApiTags('Deals')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, LocationScopeGuard)
+@FieldPolicyEntity('Deal', 'FinanceApplication', 'BankApproval')
 @Controller('deals')
 export class DealsController {
   constructor(private svc: DealsService) {}
 
   @Get()
+  @LocationScope()
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   findAll(@Query() q: any, @Request() req: any) {
     const { role, locationId: userLoc } = req.user;

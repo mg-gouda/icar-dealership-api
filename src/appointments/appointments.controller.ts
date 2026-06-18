@@ -4,17 +4,20 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AppointmentsService } from './appointments.service';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('Appointments')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, LocationScopeGuard)
 @Controller('appointments')
 export class AppointmentsController {
   constructor(private svc: AppointmentsService) {}
 
   @Get()
+  @LocationScope()
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   findAll(@Query() q: any) {
     return this.svc.findAll(q);

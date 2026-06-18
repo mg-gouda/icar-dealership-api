@@ -141,11 +141,13 @@ export class PostingService {
     const now = new Date();
     await this.assertFiscalPeriodOpen(now, companyId);
 
-    const accounts = await this.resolveAccounts(companyId, ['2500', '4300', '1300']);
+    // DR Bank/Cash (1100), CR AR (1300) principal, CR Interest Income (4300) interest
+    const accounts = await this.resolveAccounts(companyId, ['1100', '1300', '4300']);
     const analyticAccountId = deal.location.analyticAccount?.id;
 
     const principal = Number(line.principalPortion);
     const interest = Number(line.interestPortion);
+    const totalDue = Number(line.totalDue);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.journalEntry.create({
@@ -156,9 +158,9 @@ export class PostingService {
           status: 'POSTED',
           lines: {
             create: [
-              { accountId: accounts['1300'], debit: 0, credit: Number(line.totalDue), label: 'Clear AR', analyticAccountId },
-              { accountId: accounts['2500'], debit: principal, credit: 0, label: 'Installment Principal Received', analyticAccountId },
-              ...(interest > 0 ? [{ accountId: accounts['4300'], debit: interest, credit: 0, label: 'Interest Income', analyticAccountId }] : []),
+              { accountId: accounts['1100'], debit: totalDue, credit: 0, label: 'Installment Received', analyticAccountId },
+              { accountId: accounts['1300'], debit: 0, credit: principal, label: 'Clear AR — Principal', analyticAccountId },
+              ...(interest > 0 ? [{ accountId: accounts['4300'], debit: 0, credit: interest, label: 'Interest Income', analyticAccountId }] : []),
             ],
           },
         },

@@ -2,17 +2,22 @@ import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards } from '@ne
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { FieldPolicyEntity } from '../common/field-policies';
 
 @ApiTags('Partners')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, LocationScopeGuard)
+@FieldPolicyEntity('Partner')
 @Controller({ path: 'partners', version: '1' })
 export class PartnersController {
   constructor(private prisma: PrismaService) {}
 
   @Get()
+  @LocationScope()
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   list(
     @Query('type') type?: string,

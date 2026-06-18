@@ -312,9 +312,11 @@ model User {
   auditLogs AuditLog[]
   commissions DealCommission[]
 
-  totpSecret  String?
-  totpEnabled Boolean @default(false)
-  isActive    Boolean @default(true)
+  totpSecret       String?
+  totpEnabled      Boolean   @default(false)
+  resetToken       String?   @db.VarChar(64)
+  resetTokenExpiry DateTime?
+  isActive         Boolean   @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

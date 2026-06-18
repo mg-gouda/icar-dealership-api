@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD, APP_FILTER } from '@nestjs/core';
+import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { PrismaModule } from './common/prisma/prisma.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { FieldPolicyInterceptor } from './common/field-policies/field-policy.interceptor';
 
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -34,6 +35,7 @@ import { ReconciliationModule } from './finance/reconciliation/reconciliation.mo
 import { AssetsModule } from './finance/assets/assets.module';
 import { ReportsModule } from './finance/reports/reports.module';
 import { PublicModule } from './public/public.module';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
@@ -74,10 +76,14 @@ import { PublicModule } from './public/public.module';
     ReconciliationModule,
     AssetsModule,
     ReportsModule,
+
+    // Scheduled tasks
+    TasksModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: FieldPolicyInterceptor },
   ],
 })
 export class AppModule {}

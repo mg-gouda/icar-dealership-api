@@ -2,17 +2,20 @@ import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Req } from
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { CommissionsService } from './commissions.service';
 
 @ApiTags('Commissions')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, LocationScopeGuard)
 @Controller({ path: 'commissions', version: '1' })
 export class CommissionsController {
   constructor(private readonly svc: CommissionsService) {}
 
   @Get()
+  @LocationScope()
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   list(
     @Query('status') status?: string,
