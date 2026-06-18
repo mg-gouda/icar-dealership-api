@@ -315,4 +315,39 @@ export class DealsService {
     await this.prisma.deal.update({ where: { id: dealId }, data: { status: 'PENDING_FINANCE' } });
     return approval;
   }
+
+  // ── Commission splits ─────────────────────────────────────────────────────
+
+  async addCommissionSplit(dealId: string, data: {
+    userId: string; roleInDeal: string; commissionPlanId?: string;
+    baseAmount: number; splitPercentage: number;
+  }, userId: string) {
+    const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id: dealId } });
+    if (deal.status === 'FINALIZED') throw new BadRequestException('Cannot modify commissions on a finalized deal');
+
+    const commission = await this.prisma.dealCommission.create({
+      data: {
+        dealId,
+        userId: data.userId,
+        roleInDeal: data.roleInDeal,
+        commissionPlanId: data.commissionPlanId,
+        baseAmount: data.baseAmount,
+        splitPercentage: data.splitPercentage,
+        calculatedAmount: (data.baseAmount * data.splitPercentage) / 100,
+        status: 'ACCRUED',
+      },
+      include: { user: { select: { id: true, name: true } }, commissionPlan: { select: { name: true } } },
+    });
+    await this.audit.log({ entity: 'DealCommission', entityId: commission.id, action: 'CREATE', userId, newValue: commission });
+    return commission;
+  }
+
+  async removeCommissionSplit(dealId: string, commissionId: string, userId: string) {
+    const c = await this.prisma.dealCommission.findUniqueOrThrow({ where: { id: commissionId } });
+    if (c.dealId !== dealId) throw new BadRequestException('Commission does not belong to this deal');
+    if (c.status !== 'ACCRUED') throw new BadRequestException('Cannot remove commission that has been paid or is payable');
+    await this.prisma.dealCommission.delete({ where: { id: commissionId } });
+    await this.audit.log({ entity: 'DealCommission', entityId: commissionId, action: 'DELETE', userId });
+    return { deleted: true };
+  }
 }

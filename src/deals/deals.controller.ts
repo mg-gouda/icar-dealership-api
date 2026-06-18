@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Request,
+  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { DealsService } from './deals.service';
@@ -113,5 +113,23 @@ export class DealsController {
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   postBankDisbursement(@Param('id') id: string, @Request() req: any) {
     return this.svc.postBankDisbursement(id, req.user.id);
+  }
+
+  // ── Commission splits ─────────────────────────────────────────────────────
+
+  @Post(':id/commissions')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  addCommissionSplit(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.svc.addCommissionSplit(id, body, req.user.id);
+  }
+
+  @Delete(':id/commissions/:commissionId')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  removeCommissionSplit(
+    @Param('id') id: string,
+    @Param('commissionId') commissionId: string,
+    @Request() req: any,
+  ) {
+    return this.svc.removeCommissionSplit(id, commissionId, req.user.id);
   }
 }
