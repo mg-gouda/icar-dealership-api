@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Get, Query, Param } from '@nestjs/common';
+import { Controller, Post, Delete, Body, Get, Query, Param, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { LeadsService } from '../leads/leads.service';
@@ -97,6 +98,38 @@ export class PublicController {
       },
     });
     return { deals };
+  }
+
+  // ── Customer Favorites (B2C JWT required) ────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('favorites')
+  @ApiOperation({ summary: 'List customer\'s saved vehicles (B2C)' })
+  async listFavorites(@Request() req: any) {
+    return this.prisma.favorite.findMany({
+      where: { customerId: req.user.id },
+      include: { vehicle: { select: { id: true, make: true, model: true, year: true, price: true, images: { take: 1, select: { url: true } } } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('favorites/:vehicleId')
+  @ApiOperation({ summary: 'Add vehicle to favorites (B2C)' })
+  async addFavorite(@Param('vehicleId') vehicleId: string, @Request() req: any) {
+    return this.prisma.favorite.upsert({
+      where: { customerId_vehicleId: { customerId: req.user.id, vehicleId } },
+      create: { customerId: req.user.id, vehicleId },
+      update: {},
+    });
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Delete('favorites/:vehicleId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Remove vehicle from favorites (B2C)' })
+  async removeFavorite(@Param('vehicleId') vehicleId: string, @Request() req: any) {
+    await this.prisma.favorite.deleteMany({ where: { customerId: req.user.id, vehicleId } });
   }
 
   @Post('leads')

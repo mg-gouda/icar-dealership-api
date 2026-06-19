@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
@@ -11,7 +12,9 @@ import type { Role } from '../common/field-policies';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  @UseGuards(AuthGuard('local'))
+  // ponytail: 5 attempts per minute per IP — brute-force guard on auth endpoints
+  @UseGuards(ThrottlerGuard, AuthGuard('local'))
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login — returns tokens or 2FA challenge' })
@@ -19,6 +22,8 @@ export class AuthController {
     return this.authService.login(req.user);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Body('refreshToken') refreshToken: string) {

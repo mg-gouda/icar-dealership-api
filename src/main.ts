@@ -21,12 +21,29 @@ async function bootstrap() {
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
+  const b2cOrigin = process.env.B2C_ORIGIN ?? 'http://localhost:3002';
 
   app.enableCors({
-    origin: allowedOrigins.length ? allowedOrigins : true,
+    origin: (origin, cb) => {
+      // Finance endpoints reject B2C origin — admin only
+      // (request-path check is in the callback via a NestJS middleware instead;
+      //  CORS here allows admin + same-origin, B2C for non-finance)
+      if (!origin || allowedOrigins.length === 0) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      cb(new Error('Not allowed by CORS'), false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
+  // ponytail: Block B2C origin from /finance/** at middleware level (belt+suspenders)
+  app.use((req: any, res: any, next: any) => {
+    const origin = req.headers['origin'] as string | undefined;
+    if (origin === b2cOrigin && req.path.startsWith('/api/v1/finance')) {
+      return res.status(403).json({ message: 'Finance endpoints not accessible from B2C origin' });
+    }
+    next();
   });
 
   // API versioning
