@@ -63,10 +63,42 @@ export class VehiclesService {
   }
 
   async create(dto: any) {
-    return this.prisma.vehicle.create({
-      data: dto,
-      include: { images: true },
-    });
+    const vehicle = await this.prisma.vehicle.create({ data: dto, include: { images: true } });
+
+    // ponytail: auto-create DRAFT vendor bill when cost + supplierId provided
+    if (dto.cost && Number(dto.cost) > 0 && dto.supplierId) {
+      const location = await this.prisma.location.findUnique({
+        where: { id: vehicle.locationId },
+        include: { journals: { where: { code: { startsWith: 'PUR' } }, take: 1 } },
+      });
+      const purchJournal = location?.journals?.[0];
+      const inventoryAccount = purchJournal ? await this.prisma.account.findFirst({
+        where: { companyId: location!.companyId, code: '1400' },
+      }) : null;
+      if (purchJournal && inventoryAccount) {
+        await this.prisma.invoice.create({
+          data: {
+            type: 'VENDOR_BILL',
+            status: 'DRAFT',
+            journalId: purchJournal.id,
+            partnerId: dto.supplierId,
+            vendorBillSourceVehicleId: vehicle.id,
+            date: new Date(),
+            lines: {
+              create: [{
+                accountId: inventoryAccount.id,
+                description: `Vehicle acquisition: ${vehicle.year} ${vehicle.make} ${vehicle.model} (${vehicle.vin ?? vehicle.id})`,
+                quantity: 1,
+                unitPrice: Number(dto.cost),
+                subtotal: Number(dto.cost),
+              }],
+            },
+          },
+        });
+      }
+    }
+
+    return vehicle;
   }
 
   async update(id: string, dto: any) {
