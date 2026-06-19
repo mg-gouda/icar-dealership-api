@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -16,6 +16,16 @@ export class CommissionPlansController {
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   list(@Query('active') active?: string) {
     return this.svc.list(active === 'true' ? true : active === 'false' ? false : undefined);
+  }
+
+  @Get('resolve')
+  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  resolve(
+    @Query('locationId') locationId?: string,
+    @Query('vehicleCategory') vehicleCategory?: string,
+    @Query('applicableRole') applicableRole?: string,
+  ) {
+    return this.svc.resolve({ locationId, vehicleCategory, applicableRole });
   }
 
   @Get(':id')

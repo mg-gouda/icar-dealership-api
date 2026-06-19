@@ -24,6 +24,7 @@ export function roleAtLeast(userRole: Role, minRole: Role): boolean {
 export const FIELD_POLICIES: FieldPolicy[] = [
   // ── Vehicle ──
   { entity: 'Vehicle', field: 'cost', minRole: 'MANAGER', writeMinRole: 'FINANCE' },
+  { entity: 'Vehicle', field: 'price', minRole: 'SALES_REP', writeMinRole: 'MANAGER' },
   { entity: 'Vehicle', field: 'adminFeeOverride', minRole: 'MANAGER', writeMinRole: 'FINANCE' },
   { entity: 'Vehicle', field: 'insuranceFeeOverride', minRole: 'MANAGER', writeMinRole: 'FINANCE' },
 
@@ -32,6 +33,8 @@ export const FIELD_POLICIES: FieldPolicy[] = [
   { entity: 'Deal', field: 'costOfGoods', minRole: 'MANAGER' },
   { entity: 'Deal', field: 'salePrice', minRole: 'SALES_REP', writeMinRole: 'MANAGER' },
   { entity: 'Deal', field: 'purchaseMethod', minRole: 'SALES_REP', writeMinRole: 'MANAGER' },
+  { entity: 'Deal', field: 'adminFee', minRole: 'SALES_REP', writeMinRole: 'SALES_REP' },
+  { entity: 'Deal', field: 'insuranceFee', minRole: 'SALES_REP', writeMinRole: 'SALES_REP' },
 
   // ── User (staff-to-staff edits) ──
   { entity: 'User', field: 'passwordHash', minRole: 'ADMIN' },
