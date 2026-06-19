@@ -180,6 +180,30 @@ export class PostingService {
       // 4. Update vehicle status -> SOLD
       await tx.vehicle.update({ where: { id: deal.vehicleId }, data: { status: 'SOLD' } });
 
+      // 4a. Auto-create trade-in Vehicle if text fields present but no FK yet
+      // ponytail: only when tradeInVehicleId is NULL -- avoids double-post with 4b below
+      if (!deal.tradeInVehicleId && deal.tradeInMake && deal.tradeInModel && Number(deal.tradeInValue ?? 0) > 0) {
+        const tradeInVin = `TRADE-${dealId.slice(-12).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+        const tradeInVehicle = await tx.vehicle.create({
+          data: {
+            vin: tradeInVin,
+            make: deal.tradeInMake,
+            model: deal.tradeInModel,
+            year: deal.tradeInYear ?? new Date().getFullYear(),
+            status: 'AVAILABLE',
+            locationId: deal.location.id,
+            cost: deal.tradeInValue!,
+            price: deal.tradeInValue!,
+          },
+        });
+        await tx.deal.update({
+          where: { id: dealId },
+          data: { tradeInVehicleId: tradeInVehicle.id },
+        });
+        // Patch local reference so the 4b block picks it up
+        (deal as any).tradeInVehicleId = tradeInVehicle.id;
+      }
+
       // 4b. Trade-in vehicle GL entry -- DR Used Vehicle Inventory (1410), CR AR (1300)
       const tradeInValue = Number(deal.tradeInValue ?? 0);
       if (tradeInValue > 0 && deal.tradeInVehicleId) {

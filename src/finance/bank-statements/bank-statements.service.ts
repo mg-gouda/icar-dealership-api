@@ -119,6 +119,56 @@ export class BankStatementsService {
     return { imported, errors };
   }
 
+  async importOfx(statementId: string, ofxText: string) {
+    // ponytail: regex-based OFX parser -- no external lib needed
+    const stmt = await this.prisma.bankStatement.findUnique({ where: { id: statementId } });
+    if (!stmt) throw new NotFoundException('Bank statement not found');
+
+    const txnBlocks = [...ofxText.matchAll(/<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi)];
+    const errors: { row: number; error: string }[] = [];
+    let imported = 0;
+
+    for (let i = 0; i < txnBlocks.length; i++) {
+      const block = txnBlocks[i][1];
+      const get = (tag: string) => block.match(new RegExp(`<${tag}>([^<\\n]+)`, 'i'))?.[1]?.trim();
+
+      const rawDate = get('DTPOSTED') ?? get('DTAVAIL') ?? '';
+      const rawAmt = get('TRNAMT') ?? '0';
+      const memo = get('MEMO') ?? get('NAME') ?? '';
+      const fitid = get('FITID') ?? '';
+
+      // DTPOSTED format: YYYYMMDD or YYYYMMDDHHMMSS
+      const dateStr = rawDate.replace(/(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3');
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        errors.push({ row: i + 1, error: `Invalid date: ${rawDate}` });
+        continue;
+      }
+
+      const amount = parseFloat(rawAmt);
+      if (isNaN(amount)) {
+        errors.push({ row: i + 1, error: `Invalid amount: ${rawAmt}` });
+        continue;
+      }
+
+      try {
+        await this.prisma.bankStatementLine.create({
+          data: {
+            bankStatementId: statementId,
+            date,
+            description: memo || fitid || `OFX line ${i + 1}`,
+            amount,
+            reference: fitid || undefined,
+          },
+        });
+        imported++;
+      } catch (e: unknown) {
+        errors.push({ row: i + 1, error: e instanceof Error ? e.message : 'Unknown error' });
+      }
+    }
+    return { imported, errors };
+  }
+
   async createBankAccount(data: {
     name: string;
     accountNumber?: string;

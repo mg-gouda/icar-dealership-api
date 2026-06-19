@@ -59,6 +59,7 @@ export class DealsService {
     locationId: string; vehicleId: string; customerId: string; salesRepId: string;
     purchaseMethod: string; salePrice: number; adminFee?: number; insuranceFee?: number;
     leadId?: string;
+    tradeInMake?: string; tradeInModel?: string; tradeInYear?: number; tradeInValue?: number;
   }, userId: string) {
     // vehicle must be AVAILABLE
     const vehicle = await this.prisma.vehicle.findUniqueOrThrow({ where: { id: data.vehicleId } });
@@ -84,6 +85,10 @@ export class DealsService {
           insuranceFee,
           purchaseMethod: data.purchaseMethod as any,
           status: 'DRAFT',
+          tradeInMake: data.tradeInMake,
+          tradeInModel: data.tradeInModel,
+          tradeInYear: data.tradeInYear,
+          tradeInValue: data.tradeInValue,
         },
       });
       // mark vehicle RESERVED while deal is open
@@ -98,6 +103,7 @@ export class DealsService {
   async update(id: string, data: Partial<{
     salePrice: number; adminFee: number; insuranceFee: number;
     salesRepId: string; purchaseMethod: string;
+    tradeInMake: string; tradeInModel: string; tradeInYear: number; tradeInValue: number;
   }>, userId: string) {
     const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id } });
     if (deal.status === 'FINALIZED') throw new BadRequestException('Cannot edit a finalized deal');

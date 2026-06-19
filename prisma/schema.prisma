@@ -503,6 +503,9 @@ model Deal {
   tradeInVehicleId String?  @unique
   tradeInVehicle   Vehicle? @relation("TradeInVehicle", fields: [tradeInVehicleId], references: [id])
   tradeInValue     Decimal? @db.Decimal(12, 2)
+  tradeInMake      String?
+  tradeInModel     String?
+  tradeInYear      Int?
 
   customerId String
   customer   User   @relation("CustomerDeals", fields: [customerId], references: [id])

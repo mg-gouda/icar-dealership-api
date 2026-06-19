@@ -41,4 +41,10 @@ export class BankStatementsController {
   importCsv(@Param('id') id: string, @Body() body: { csv: string }) {
     return this.svc.importCsv(id, body.csv);
   }
+
+  @Post(':id/import-ofx')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  importOfx(@Param('id') id: string, @Body() body: { ofx: string }) {
+    return this.svc.importOfx(id, body.ofx);
+  }
 }

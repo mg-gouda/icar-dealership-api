@@ -28,7 +28,7 @@ export class AuthController {
   @UseGuards(AuthGuard('jwt'))
   @Get('me')
   me(@Request() req: any) {
-    return this.authService.me(req.user.sub);
+    return this.authService.me(req.user.id);
   }
 
   @UseGuards(AuthGuard('jwt'))
@@ -52,7 +52,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Generate TOTP secret for enrollment' })
   setup2fa(@Request() req: any) {
-    return this.authService.setupTotp(req.user.sub);
+    return this.authService.setupTotp(req.user.id);
   }
 
   // Confirm enrollment by providing first valid code
@@ -61,7 +61,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Confirm TOTP enrollment with first valid code' })
   confirm2fa(@Request() req: any, @Body('token') token: string) {
-    return this.authService.confirmTotp(req.user.sub, token);
+    return this.authService.confirmTotp(req.user.id, token);
   }
 
   // Called after login when requiresTotp: true
@@ -70,7 +70,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify TOTP code during login flow' })
   verify2fa(@Request() req: any, @Body('token') token: string) {
-    return this.authService.verifyTotp(req.user.sub, token);
+    return this.authService.verifyTotp(req.user.id, token);
   }
 
   @ApiBearerAuth()
@@ -79,7 +79,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Disable TOTP (non-privileged roles only)' })
   disable2fa(@Request() req: any, @Body('token') token: string) {
-    return this.authService.disableTotp(req.user.sub, token);
+    return this.authService.disableTotp(req.user.id, token);
   }
 
   // ── Logout ─────────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout — audit and invalidate session indicator' })
   async logout(@Request() req: any) {
-    await this.authService.auditLogout(req.user.sub);
+    await this.authService.auditLogout(req.user.id);
     return { message: 'Logged out' };
   }
 

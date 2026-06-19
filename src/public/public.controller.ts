@@ -72,6 +72,33 @@ export class PublicController {
     });
   }
 
+  @Get('deal-status')
+  @ApiOperation({ summary: 'Customer deal status lookup by email (B2C — no auth)' })
+  async dealStatus(@Query('email') email: string, @Query('ref') ref?: string) {
+    if (!email) return { deals: [] };
+    // Find customer by email, return their deals (status + vehicle + dates only — no financials)
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      select: { id: true },
+    });
+    if (!user) return { deals: [] };
+
+    const where: any = { customerId: user.id };
+    if (ref) where.id = { endsWith: ref.slice(-8).toUpperCase() };
+
+    const deals = await this.prisma.deal.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: {
+        id: true, status: true, purchaseMethod: true, createdAt: true,
+        vehicle: { select: { make: true, model: true, year: true } },
+        location: { select: { name: true, phone: true } },
+      },
+    });
+    return { deals };
+  }
+
   @Post('leads')
   @ApiOperation({ summary: 'Submit a lead from the B2C website (no auth required)' })
   async createLead(@Body() body: {
