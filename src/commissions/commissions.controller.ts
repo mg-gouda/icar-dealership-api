@@ -40,6 +40,17 @@ export class CommissionsController {
     return this.svc.summary(userId);
   }
 
+  // ponytail: static route before :id
+  @Get('report')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  report(
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('userId') userId?: string,
+  ) {
+    return this.svc.report({ dateFrom, dateTo, userId });
+  }
+
   @Get(':id')
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   findOne(@Param('id') id: string) {

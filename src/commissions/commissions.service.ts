@@ -56,6 +56,41 @@ export class CommissionsService {
     }));
   }
 
+  async report(opts: { dateFrom?: string; dateTo?: string; userId?: string }) {
+    const where: any = {};
+    if (opts.userId) where.userId = opts.userId;
+    if (opts.dateFrom || opts.dateTo) {
+      where.accruedAt = {};
+      if (opts.dateFrom) where.accruedAt.gte = new Date(opts.dateFrom);
+      if (opts.dateTo) where.accruedAt.lte = new Date(opts.dateTo + 'T23:59:59Z');
+    }
+    const rows = await this.prisma.dealCommission.groupBy({
+      by: ['userId', 'status'],
+      where,
+      _sum: { calculatedAmount: true },
+      _count: { id: true },
+    });
+
+    // Fetch user names for the grouped userIds
+    const userIds = [...new Set(rows.map((r) => r.userId))];
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true, role: true },
+    });
+    const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+
+    // Pivot to per-user summary
+    const byUser: Record<string, any> = {};
+    for (const r of rows) {
+      if (!byUser[r.userId]) byUser[r.userId] = { user: userMap[r.userId] ?? { id: r.userId, name: r.userId }, ACCRUED: 0, PAYABLE: 0, PAID: 0, CANCELLED: 0, total: 0, count: 0 };
+      byUser[r.userId][r.status] = Number(r._sum.calculatedAmount ?? 0);
+      byUser[r.userId].total += Number(r._sum.calculatedAmount ?? 0);
+      byUser[r.userId].count += r._count.id;
+    }
+
+    return Object.values(byUser).sort((a: any, b: any) => b.total - a.total);
+  }
+
   async findOne(id: string) {
     return this.prisma.dealCommission.findUniqueOrThrow({
       where: { id },
