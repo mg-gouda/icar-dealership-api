@@ -5,6 +5,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { MailService } from '../common/mail/mail.service';
 import { generateSecret, verifyTotp, totpUri } from './totp';
 
 const TWO_FA_ROLES = ['FINANCE', 'ADMIN', 'SUPER_ADMIN'];
@@ -21,6 +22,7 @@ export class AuthService {
     private jwt: JwtService,
     private config: ConfigService,
     private audit: AuditService,
+    private mail: MailService,
   ) {}
 
   async validateUser(email: string, password: string) {
@@ -190,14 +192,13 @@ export class AuthService {
       },
     });
 
-    // ponytail: log plaintext code for dev — production would email it
     await this.audit.log({
-      entity: 'Auth',
-      entityId: user.id,
-      action: 'PASSWORD_RESET_REQUESTED',
-      userId: user.id,
-      newValue: { resetCode: code },
+      entity: 'Auth', entityId: user.id, action: 'PASSWORD_RESET_REQUESTED',
+      userId: user.id, newValue: { resetCode: code },
     });
+
+    // Send email (no-op if SMTP not configured)
+    await this.mail.sendPasswordReset(user.email, code);
   }
 
   async resetPassword(email: string, code: string, newPassword: string) {

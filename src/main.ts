@@ -1,10 +1,17 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
+import { existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // ponytail: httpOnly cookie auth per spec 08
+  app.use(cookieParser());
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -45,6 +52,11 @@ async function bootstrap() {
     }
     next();
   });
+
+  // Static file serving for uploads
+  const uploadDir = process.env.UPLOAD_DIR ?? join(process.cwd(), 'uploads');
+  if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
+  app.useStaticAssets(uploadDir, { prefix: '/uploads' });
 
   // API versioning
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });

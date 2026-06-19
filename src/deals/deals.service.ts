@@ -4,6 +4,7 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../finance/posting/posting.service';
+import { MailService } from '../common/mail/mail.service';
 
 @Injectable()
 export class DealsService {
@@ -11,6 +12,7 @@ export class DealsService {
     private prisma: PrismaService,
     private audit: AuditService,
     private posting: PostingService,
+    private mail: MailService,
   ) {}
 
   findAll(query: {
@@ -140,7 +142,17 @@ export class DealsService {
     });
 
     await this.audit.log({ entity: 'Deal', entityId: id, action: 'FINALIZE', userId });
-    return this.findById(id);
+
+    // Email customer about finalized deal (fire-and-forget)
+    const finalized = await this.findById(id);
+    const cust = (finalized as any).customer;
+    if (cust?.email) {
+      const v = (finalized as any).vehicle;
+      const vehicleDesc = v ? `${v.year} ${v.make} ${v.model}` : 'vehicle';
+      this.mail.sendDealStatusUpdate(cust.email, cust.name, 'FINALIZED', vehicleDesc).catch(() => undefined);
+    }
+
+    return finalized;
   }
 
   async cancel(id: string, userId: string) {

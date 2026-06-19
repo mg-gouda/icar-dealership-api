@@ -36,6 +36,8 @@ import { AssetsModule } from './finance/assets/assets.module';
 import { ReportsModule } from './finance/reports/reports.module';
 import { PublicModule } from './public/public.module';
 import { TasksModule } from './tasks/tasks.module';
+import { MailModule } from './common/mail/mail.module';
+import { UploadModule } from './upload/upload.module';
 
 @Module({
   imports: [
@@ -79,6 +81,10 @@ import { TasksModule } from './tasks/tasks.module';
 
     // Scheduled tasks
     TasksModule,
+
+    // Cross-cutting
+    MailModule,
+    UploadModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

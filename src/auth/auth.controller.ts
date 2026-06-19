@@ -1,11 +1,25 @@
-import { Controller, Post, Get, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Request, Res, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 import { FIELD_POLICIES, roleAtLeast } from '../common/field-policies';
 import type { Role } from '../common/field-policies';
+
+const COOKIE_OPTS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict' as const,
+};
+
+function setAuthCookies(res: Response, accessToken: string, refreshToken?: string) {
+  res.cookie('admin_token', accessToken, { ...COOKIE_OPTS, maxAge: 8 * 3600 * 1000, path: '/' });
+  if (refreshToken) {
+    res.cookie('admin_refresh', refreshToken, { ...COOKIE_OPTS, maxAge: 7 * 24 * 3600 * 1000, path: '/api/v1/auth/refresh' });
+  }
+}
 
 @ApiTags('auth')
 @Controller({ path: 'auth', version: '1' })
@@ -18,8 +32,11 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login — returns tokens or 2FA challenge' })
-  async login(@Request() req: any) {
-    return this.authService.login(req.user);
+  async login(@Request() req: any, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.login(req.user);
+    const r = result as any;
+    if (r.accessToken) setAuthCookies(res, r.accessToken, r.refreshToken);
+    return result;
   }
 
   @UseGuards(ThrottlerGuard)
@@ -65,8 +82,10 @@ export class AuthController {
   @Post('2fa/confirm')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Confirm TOTP enrollment with first valid code' })
-  confirm2fa(@Request() req: any, @Body('token') token: string) {
-    return this.authService.confirmTotp(req.user.id, token);
+  async confirm2fa(@Request() req: any, @Body('token') token: string, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.confirmTotp(req.user.id, token);
+    if ((result as any).accessToken) setAuthCookies(res, (result as any).accessToken, (result as any).refreshToken);
+    return result;
   }
 
   // Called after login when requiresTotp: true
@@ -74,8 +93,10 @@ export class AuthController {
   @Post('2fa/verify')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify TOTP code during login flow' })
-  verify2fa(@Request() req: any, @Body('token') token: string) {
-    return this.authService.verifyTotp(req.user.id, token);
+  async verify2fa(@Request() req: any, @Body('token') token: string, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.verifyTotp(req.user.id, token) as any;
+    if (result.accessToken) setAuthCookies(res, result.accessToken, result.refreshToken);
+    return result;
   }
 
   @ApiBearerAuth()
@@ -94,8 +115,10 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout — audit and invalidate session indicator' })
-  async logout(@Request() req: any) {
+  async logout(@Request() req: any, @Res({ passthrough: true }) res: Response) {
     await this.authService.auditLogout(req.user.id);
+    res.clearCookie('admin_token', { path: '/' });
+    res.clearCookie('admin_refresh', { path: '/api/v1/auth/refresh' });
     return { message: 'Logged out' };
   }
 

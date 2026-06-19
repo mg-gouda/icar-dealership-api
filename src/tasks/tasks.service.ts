@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AssetsService } from '../finance/assets/assets.service';
 import { CurrenciesService } from '../finance/currencies/currencies.service';
 import { GlService } from '../finance/gl/gl.service';
+import { MailService } from '../common/mail/mail.service';
 
 // ponytail: setInterval workaround — @nestjs/schedule not installed.
 // Replace with @Cron decorators once the package is added.
@@ -20,6 +21,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     private readonly assetsService: AssetsService,
     private readonly currenciesService: CurrenciesService,
     private readonly glService: GlService,
+    private readonly mail: MailService,
   ) {}
 
   onModuleInit() {
@@ -229,6 +231,21 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
         },
       })),
     });
+
+    // Send emails to customers with known email addresses
+    for (const apt of appointments) {
+      if (apt.customer?.email) {
+        const date = apt.scheduledAt.toLocaleDateString('en-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const time = apt.scheduledAt.toLocaleTimeString('en-EG', { hour: '2-digit', minute: '2-digit' });
+        await this.mail.sendAppointmentReminder(
+          apt.customer.email,
+          apt.customer.name,
+          date,
+          time,
+          (apt as any).location?.name ?? 'our showroom',
+        ).catch((err: unknown) => this.logger.error(`Reminder email failed for ${apt.id}: ${err instanceof Error ? err.message : String(err)}`));
+      }
+    }
 
     this.logger.log(`sendAppointmentReminders: ${appointments.length} reminder(s) logged`);
   }
