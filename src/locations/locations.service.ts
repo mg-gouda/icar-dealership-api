@@ -50,4 +50,20 @@ export class LocationsService {
     await this.audit.log({ entity: 'Location', entityId: id, action: 'UPDATE', userId, newValue: data });
     return loc;
   }
+
+  async getCompanyProfile(companyId: string) {
+    return this.prisma.company.findUniqueOrThrow({
+      where: { id: companyId },
+      select: { id: true, name: true, taxId: true, address: true, fiscalYearStartMonth: true, adminFeeBoundsPercent: true, insuranceFeeBoundsPercent: true },
+    });
+  }
+
+  async updateCompanyProfile(companyId: string, data: Partial<{
+    name: string; taxId: string; address: string; fiscalYearStartMonth: number;
+    adminFeeBoundsPercent: number; insuranceFeeBoundsPercent: number;
+  }>, userId: string) {
+    const company = await this.prisma.company.update({ where: { id: companyId }, data });
+    await this.audit.log({ entity: 'Company', entityId: companyId, action: 'UPDATE', userId, newValue: data });
+    return company;
+  }
 }

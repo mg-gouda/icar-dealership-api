@@ -38,4 +38,18 @@ export class LocationsController {
     return this.svc.update(id, body, req.user.id);
   }
 
+  // ── Company profile (fee bounds config) ─────────────────────────────────
+
+  @Get('company/profile')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  getCompanyProfile(@Request() req: any) {
+    return this.svc.getCompanyProfile(req.user.companyId);
+  }
+
+  @Patch('company/profile')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  updateCompanyProfile(@Body() body: any, @Request() req: any) {
+    return this.svc.updateCompanyProfile(req.user.companyId, body, req.user.id);
+  }
+
 }
