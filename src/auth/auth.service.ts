@@ -228,4 +228,20 @@ export class AuthService {
       userId: user.id,
     });
   }
+
+  async customerRegister(name: string, email: string, password: string) {
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new BadRequestException('Email already registered');
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await this.prisma.user.create({
+      data: { name, email, passwordHash, role: 'CUSTOMER' },
+    });
+
+    const payload = { sub: user.id, email: user.email, role: user.role };
+    return {
+      accessToken: this.jwt.sign(payload),
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    };
+  }
 }

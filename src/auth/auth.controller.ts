@@ -112,4 +112,14 @@ export class AuthController {
     await this.authService.resetPassword(dto.email, dto.code, dto.newPassword);
     return { message: 'Password reset successful' };
   }
+
+  // ── Customer (B2C) self-registration ──────────────────────────────────────
+  @Post('customer/register')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'B2C customer self-registration' })
+  async customerRegister(
+    @Body() body: { name: string; email: string; password: string },
+  ) {
+    return this.authService.customerRegister(body.name, body.email, body.password);
+  }
 }
