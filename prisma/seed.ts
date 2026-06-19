@@ -303,6 +303,97 @@ async function main() {
     });
   }
 
+  // ── 8b. Alexandria Location & Journals ───────────────────────────────────
+  const alexLocation = await prisma.location.upsert({
+    where: { id: 'loc-alex-001' },
+    update: {},
+    create: {
+      id: 'loc-alex-001',
+      companyId: company.id,
+      name: 'Alexandria Showroom',
+      city: 'Alexandria',
+      address: '45 El-Hurriya Road, Alexandria',
+      phone: '+20 3 9876543',
+      timezone: 'Africa/Cairo',
+      defaultAdminFee: 2500,
+      defaultInsuranceFee: 1500,
+      defaultTaxId: vat14.id,
+    },
+  });
+
+  await prisma.analyticAccount.upsert({
+    where: { locationId: alexLocation.id },
+    update: {},
+    create: { locationId: alexLocation.id, name: 'ALX - Alexandria Location' },
+  });
+
+  const alexJournalDefs = [
+    {
+      id: 'j-sale-alx',
+      name: 'Sales Journal – Alexandria',
+      code: 'SALE-ALX',
+      type: 'SALE',
+      sequencePrefix: 'INV/ALX/',
+      defaultDebitCode: '1300',
+      defaultCreditCode: '4100',
+    },
+    {
+      id: 'j-purch-alx',
+      name: 'Purchase Journal – Alexandria',
+      code: 'PUR-ALX',
+      type: 'PURCHASE',
+      sequencePrefix: 'BILL/ALX/',
+      defaultDebitCode: '5100',
+      defaultCreditCode: '2100',
+    },
+    {
+      id: 'j-cash-alx',
+      name: 'Cash Journal – Alexandria',
+      code: 'CASH-ALX',
+      type: 'CASH',
+      sequencePrefix: 'CSH/ALX/',
+      defaultDebitCode: '1110',
+      defaultCreditCode: '1110',
+    },
+    {
+      id: 'j-bank-alx',
+      name: 'Bank Journal – Alexandria',
+      code: 'BANK-ALX',
+      type: 'BANK',
+      sequencePrefix: 'BNK/ALX/',
+      defaultDebitCode: '1210',
+      defaultCreditCode: '1210',
+    },
+    {
+      id: 'j-gen-alx',
+      name: 'General Journal – Alexandria',
+      code: 'GEN-ALX',
+      type: 'GENERAL',
+      sequencePrefix: 'GEN/ALX/',
+      defaultDebitCode: '1110',
+      defaultCreditCode: '1110',
+    },
+  ];
+
+  for (const j of alexJournalDefs) {
+    await prisma.journal.upsert({
+      where: { companyId_code: { companyId: company.id, code: j.code } },
+      update: {},
+      create: {
+        id: j.id,
+        companyId: company.id,
+        locationId: alexLocation.id,
+        name: j.name,
+        code: j.code,
+        type: j.type as any,
+        sequencePrefix: j.sequencePrefix,
+        defaultDebitAccountId: coa[j.defaultDebitCode],
+        defaultCreditAccountId: coa[j.defaultCreditCode],
+        currencyId: egp.id,
+      },
+    });
+  }
+
   // Company-level general journal
   await prisma.journal.upsert({
     where: { companyId_code: { companyId: company.id, code: 'MISC' } },

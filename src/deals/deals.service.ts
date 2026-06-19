@@ -137,6 +137,9 @@ export class DealsService {
       await tx.deal.update({ where: { id }, data: { status: 'CANCELLED' } });
       // release vehicle back to AVAILABLE
       await tx.vehicle.update({ where: { id: deal.vehicleId }, data: { status: 'AVAILABLE' } });
+
+      // ponytail: commission clawback -- reverse any ACCRUED/PAYABLE commissions
+      await this.posting.clawbackCommissions(id, userId, tx);
     });
 
     await this.audit.log({ entity: 'Deal', entityId: id, action: 'CANCEL', userId });
@@ -154,23 +157,70 @@ export class DealsService {
     }
 
     // Generate installment lines
-    const lines = Array.from({ length: data.durationMonths }, (_, i) => {
-      const dueDate = new Date(data.startDate);
-      dueDate.setMonth(dueDate.getMonth() + i);
-      // ponytail: flat calc — even split of principal/interest across months
-      const principalPortion = data.principalAmount / data.durationMonths;
-      const interestPortion = (data.totalPayable - data.principalAmount) / data.durationMonths;
-      const totalDue = principalPortion + interestPortion;
-      return {
-        installmentNumber: i + 1,
-        dueDate,
-        principalPortion,
-        interestPortion,
-        totalDue,
-        status: 'PENDING' as const,
-        paidAmount: 0,
-      };
-    });
+    const lines: Array<{
+      installmentNumber: number; dueDate: Date;
+      principalPortion: number; interestPortion: number; totalDue: number;
+      status: 'PENDING'; paidAmount: number;
+    }> = [];
+
+    const principal = data.principalAmount;
+    const n = data.durationMonths;
+    const monthlyRate = data.interestRate / 12 / 100; // annual rate -> monthly decimal
+
+    if (data.calculationMethod === 'AMORTIZING' && monthlyRate > 0) {
+      // ponytail: reducing-balance PMT formula
+      const pmt = (principal * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -n));
+      let balance = principal;
+
+      for (let i = 0; i < n; i++) {
+        const interestPortion = Math.round(balance * monthlyRate * 100) / 100;
+        const principalPortion = Math.round((pmt - interestPortion) * 100) / 100;
+        const dueDate = new Date(data.startDate);
+        dueDate.setMonth(dueDate.getMonth() + i);
+        lines.push({
+          installmentNumber: i + 1,
+          dueDate,
+          principalPortion,
+          interestPortion,
+          totalDue: Math.round((principalPortion + interestPortion) * 100) / 100,
+          status: 'PENDING',
+          paidAmount: 0,
+        });
+        balance -= principalPortion;
+      }
+
+      // Adjust last line for rounding residual
+      const totalPrincipal = lines.reduce((s, l) => s + l.principalPortion, 0);
+      const residual = Math.round((principal - totalPrincipal) * 100) / 100;
+      if (Math.abs(residual) > 0.001) {
+        lines[lines.length - 1].principalPortion += residual;
+        lines[lines.length - 1].totalDue += residual;
+      }
+    } else {
+      // Flat calc -- even split of principal/interest across months
+      for (let i = 0; i < n; i++) {
+        const dueDate = new Date(data.startDate);
+        dueDate.setMonth(dueDate.getMonth() + i);
+        const principalPortion = principal / n;
+        const interestPortion = (data.totalPayable - principal) / n;
+        const totalDue = principalPortion + interestPortion;
+        lines.push({
+          installmentNumber: i + 1,
+          dueDate,
+          principalPortion,
+          interestPortion,
+          totalDue,
+          status: 'PENDING',
+          paidAmount: 0,
+        });
+      }
+    }
+
+    // ponytail: compute totals from generated lines for accuracy
+    const computedTotal = lines.reduce((s, l) => s + l.totalDue, 0);
+    const computedMonthly = data.calculationMethod === 'AMORTIZING'
+      ? undefined // varies per line
+      : (lines[0]?.totalDue ?? 0);
 
     const plan = await this.prisma.installmentPlan.create({
       data: {
@@ -181,8 +231,8 @@ export class DealsService {
         interestRate: data.interestRate,
         durationMonths: data.durationMonths,
         calculationMethod: data.calculationMethod as any,
-        totalPayable: data.totalPayable,
-        monthlyInstallment: data.monthlyInstallment,
+        totalPayable: Math.round(computedTotal * 100) / 100,
+        monthlyInstallment: computedMonthly,
         startDate: new Date(data.startDate),
         installments: {
           createMany: { data: lines },
@@ -375,6 +425,15 @@ export class DealsService {
       },
       include: { user: { select: { id: true, name: true } }, commissionPlan: { select: { name: true } } },
     });
+
+    // ponytail: validate total split % <= 100 after insert
+    const splits = await this.prisma.dealCommission.findMany({ where: { dealId } });
+    const totalPct = splits.reduce((s, c) => s + Number(c.splitPercentage ?? 100), 0);
+    if (totalPct > 100) {
+      await this.prisma.dealCommission.delete({ where: { id: commission.id } });
+      throw new BadRequestException(`Commission split total ${totalPct}% exceeds 100%. Reduce the percentage.`);
+    }
+
     await this.audit.log({ entity: 'DealCommission', entityId: commission.id, action: 'CREATE', userId, newValue: commission });
     return commission;
   }

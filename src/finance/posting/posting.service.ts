@@ -18,6 +18,7 @@ export class PostingService {
       where: { id: dealId },
       include: {
         vehicle: true,
+        tradeInVehicle: true,
         location: {
           include: {
             journals: true,
@@ -178,6 +179,27 @@ export class PostingService {
 
       // 4. Update vehicle status -> SOLD
       await tx.vehicle.update({ where: { id: deal.vehicleId }, data: { status: 'SOLD' } });
+
+      // 4b. Trade-in vehicle GL entry -- DR Used Vehicle Inventory (1410), CR AR (1300)
+      const tradeInValue = Number(deal.tradeInValue ?? 0);
+      if (tradeInValue > 0 && deal.tradeInVehicleId) {
+        await tx.journalEntry.create({
+          data: {
+            journalId: generalJournal.id,
+            date: now,
+            ref: `TRADE-${dealId.slice(-8).toUpperCase()}`,
+            status: 'POSTED',
+            lines: {
+              create: [
+                { accountId: accounts['1410'], debit: tradeInValue, credit: 0, label: 'Trade-In Vehicle Inventory', analyticAccountId },
+                { accountId: accounts['1300'], debit: 0, credit: tradeInValue, label: 'Trade-In Credit - AR Reduction', analyticAccountId },
+              ],
+            },
+          },
+        });
+        // Mark trade-in vehicle as AVAILABLE (now part of dealership inventory)
+        await tx.vehicle.update({ where: { id: deal.tradeInVehicleId }, data: { status: 'AVAILABLE' } });
+      }
 
       // 5. Update deal status -> FINALIZED
       await tx.deal.update({
@@ -421,6 +443,59 @@ export class PostingService {
         });
       }
     });
+  }
+
+  // -- Commission Clawback --
+
+  async clawbackCommissions(dealId: string, userId: string, tx?: any): Promise<void> {
+    const db = tx ?? this.prisma;
+
+    const commissions = await db.dealCommission.findMany({
+      where: { dealId, status: { in: ['ACCRUED', 'PAYABLE'] } },
+      include: {
+        deal: {
+          include: {
+            location: { include: { journals: true, analyticAccount: true } },
+          },
+        },
+      },
+    });
+    if (!commissions.length) return;
+
+    // Resolve journal + accounts once for all commissions on this deal
+    const location = commissions[0].deal.location;
+    const generalJournal = location.journals.find((j: { type: string }) => j.type === 'GENERAL');
+    if (!generalJournal) throw new BadRequestException('No GENERAL journal on location');
+
+    const companyId = generalJournal.companyId;
+    const accounts = await this.resolveAccounts(companyId, ['2400', '6100']);
+    const analyticAccountId = location.analyticAccount?.id;
+    const now = new Date();
+
+    for (const commission of commissions) {
+      const amount = Number(commission.calculatedAmount);
+
+      // DR Commissions Payable (2400), CR Sales Commission Expense (6100)
+      await db.journalEntry.create({
+        data: {
+          journalId: generalJournal.id,
+          date: now,
+          ref: `COMM-CLB-${dealId.slice(-8).toUpperCase()}`,
+          status: 'POSTED',
+          lines: {
+            create: [
+              { accountId: accounts['2400'], debit: amount, credit: 0, label: 'Commission Clawback - Payable Reversal', analyticAccountId },
+              { accountId: accounts['6100'], debit: 0, credit: amount, label: 'Commission Clawback - Expense Reversal', analyticAccountId },
+            ],
+          },
+        },
+      });
+
+      await db.dealCommission.update({
+        where: { id: commission.id },
+        data: { status: 'CANCELLED' },
+      });
+    }
   }
 
   // -- Invoice / Payment GL Posting --
