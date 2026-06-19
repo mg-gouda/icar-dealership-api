@@ -66,10 +66,10 @@ export class DealsService {
       throw new BadRequestException(`Vehicle ${data.vehicleId} is not available (status: ${vehicle.status})`);
     }
 
-    // resolve fee defaults from location if not provided
+    // Fee cascade: explicit value → vehicle override → location default
     const location = await this.prisma.location.findUniqueOrThrow({ where: { id: data.locationId } });
-    const adminFee = data.adminFee ?? Number(location.defaultAdminFee ?? 0);
-    const insuranceFee = data.insuranceFee ?? Number(location.defaultInsuranceFee ?? 0);
+    const adminFee = data.adminFee ?? Number(vehicle.adminFeeOverride ?? location.defaultAdminFee ?? 0);
+    const insuranceFee = data.insuranceFee ?? Number(vehicle.insuranceFeeOverride ?? location.defaultInsuranceFee ?? 0);
 
     const deal = await this.prisma.$transaction(async (tx) => {
       const d = await tx.deal.create({

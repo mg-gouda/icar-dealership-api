@@ -8,7 +8,7 @@ import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { FieldPolicyEntity } from '../common/field-policies';
+import { FieldPolicyEntity, assertFieldWriteAccess } from '../common/field-policies';
 
 @ApiTags('Deals')
 @ApiBearerAuth()
@@ -43,6 +43,7 @@ export class DealsController {
   @Patch(':id')
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    assertFieldWriteAccess('Deal', body, req.user.role);
     return this.svc.update(id, body, req.user.id);
   }
 

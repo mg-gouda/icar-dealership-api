@@ -6,7 +6,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { LocationScope } from '../common/decorators/location-scope.decorator';
-import { FieldPolicyEntity } from '../common/field-policies';
+import { FieldPolicyEntity, assertFieldWriteAccess } from '../common/field-policies';
 
 @ApiTags('vehicles')
 @ApiBearerAuth()
@@ -48,7 +48,8 @@ export class VehiclesController {
 
   @Patch(':id')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  update(@Param('id') id: string, @Body() body: any) {
+  update(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    assertFieldWriteAccess('Vehicle', body, req.user.role);
     return this.vehiclesService.update(id, body);
   }
 

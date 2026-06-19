@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AssetsService } from '../finance/assets/assets.service';
 import { CurrenciesService } from '../finance/currencies/currencies.service';
+import { GlService } from '../finance/gl/gl.service';
 
 // ponytail: setInterval workaround — @nestjs/schedule not installed.
 // Replace with @Cron decorators once the package is added.
@@ -18,6 +19,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly assetsService: AssetsService,
     private readonly currenciesService: CurrenciesService,
+    private readonly glService: GlService,
   ) {}
 
   onModuleInit() {
@@ -25,6 +27,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     this.scheduleMonthlyFirstDay(2, 0, () => this.postMonthlyDepreciation());
     this.scheduleMonthlyLastDay(3, 0, () => this.monthlyFxRevaluation());
     this.scheduleDaily(8, 0, () => this.sendAppointmentReminders());
+    this.scheduleMonthlyFirstDay(4, 0, () => this.generateRecurringJournalEntries());
     this.logger.log('Scheduled tasks registered');
   }
 
@@ -228,5 +231,21 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.logger.log(`sendAppointmentReminders: ${appointments.length} reminder(s) logged`);
+  }
+
+  // ── Task 5: Generate recurring journal entries (monthly 1st, 04:00) ──
+
+  async generateRecurringJournalEntries(): Promise<void> {
+    const company = await this.prisma.company.findFirst();
+    if (!company) {
+      this.logger.warn('generateRecurringJournalEntries: no company found, skipping');
+      return;
+    }
+    try {
+      const result = await this.glService.generateRecurring(company.id, new Date(), 'system');
+      this.logger.log(`generateRecurringJournalEntries: ${result.generated} JE(s) created`);
+    } catch (e: unknown) {
+      this.logger.error('generateRecurringJournalEntries failed', e instanceof Error ? e.stack : String(e));
+    }
   }
 }
