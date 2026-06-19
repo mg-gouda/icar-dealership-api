@@ -227,6 +227,119 @@ export class ReportsService {
     return Array.from(partnerMap.values()).sort((a, b) => a.partnerName.localeCompare(b.partnerName));
   }
 
+  async cashFlow(companyId: string, dateFrom: Date, dateTo: Date) {
+    // ponytail: simplified indirect method
+    const is = await this.incomeStatement(companyId, dateFrom, dateTo);
+    const netProfit = is.netProfit;
+
+    // Depreciation: sum JEL on accounts with code '6500' (depreciation expense) in period
+    const depRows = await this.prisma.journalEntryLine.aggregate({
+      where: {
+        account: { companyId, code: '6500' },
+        journalEntry: {
+          status: 'POSTED',
+          date: { gte: dateFrom, lte: dateTo },
+          journal: { companyId },
+        },
+      },
+      _sum: { debit: true, credit: true },
+    });
+    const depreciation = new Decimal(depRows._sum?.debit?.toString() ?? '0')
+      .minus(new Decimal(depRows._sum?.credit?.toString() ?? '0'));
+
+    // AR change: sum of AR account lines (code '1200') -- increase in AR = cash outflow
+    const arRows = await this.prisma.journalEntryLine.aggregate({
+      where: {
+        account: { companyId, code: '1200' },
+        journalEntry: {
+          status: 'POSTED',
+          date: { gte: dateFrom, lte: dateTo },
+          journal: { companyId },
+        },
+      },
+      _sum: { debit: true, credit: true },
+    });
+    const arChange = new Decimal(arRows._sum?.debit?.toString() ?? '0')
+      .minus(new Decimal(arRows._sum?.credit?.toString() ?? '0'));
+
+    // AP change: sum of AP account lines (code '2100') -- increase in AP = cash inflow
+    const apRows = await this.prisma.journalEntryLine.aggregate({
+      where: {
+        account: { companyId, code: '2100' },
+        journalEntry: {
+          status: 'POSTED',
+          date: { gte: dateFrom, lte: dateTo },
+          journal: { companyId },
+        },
+      },
+      _sum: { debit: true, credit: true },
+    });
+    const apChange = new Decimal(apRows._sum?.credit?.toString() ?? '0')
+      .minus(new Decimal(apRows._sum?.debit?.toString() ?? '0'));
+
+    const operatingCashFlow = netProfit.plus(depreciation).minus(arChange).plus(apChange);
+
+    return {
+      netProfit,
+      depreciation,
+      arChange,
+      apChange,
+      operatingCashFlow,
+      note: 'Simplified indirect method',
+    };
+  }
+
+  async taxReport(companyId: string, dateFrom: Date, dateTo: Date) {
+    const taxGroups = await this.prisma.taxGroup.findMany({
+      include: { taxes: { select: { amount: true, accountId: true } } },
+    });
+
+    const results: {
+      taxGroupId: string;
+      taxGroupName: string;
+      rate: Decimal;
+      taxCollected: Decimal;
+      taxPaid: Decimal;
+      netPayable: Decimal;
+    }[] = [];
+
+    for (const tg of taxGroups) {
+      const accountIds = [...new Set(tg.taxes.map((t) => t.accountId))];
+      if (!accountIds.length) continue;
+
+      const avgRate = tg.taxes.reduce(
+        (sum, t) => sum.plus(new Decimal(t.amount.toString())),
+        new Decimal(0),
+      ).div(tg.taxes.length);
+
+      const rows = await this.prisma.journalEntryLine.aggregate({
+        where: {
+          accountId: { in: accountIds },
+          journalEntry: {
+            status: 'POSTED',
+            date: { gte: dateFrom, lte: dateTo },
+            journal: { companyId },
+          },
+        },
+        _sum: { debit: true, credit: true },
+      });
+
+      const taxCollected = new Decimal(rows._sum?.credit?.toString() ?? '0');
+      const taxPaid = new Decimal(rows._sum?.debit?.toString() ?? '0');
+
+      results.push({
+        taxGroupId: tg.id,
+        taxGroupName: tg.name,
+        rate: avgRate,
+        taxCollected,
+        taxPaid,
+        netPayable: taxCollected.minus(taxPaid),
+      });
+    }
+
+    return results;
+  }
+
   async glByAccount(companyId: string, accountId: string, dateFrom?: Date, dateTo?: Date, page = 1, limit = 50) {
     const where: any = {
       accountId,

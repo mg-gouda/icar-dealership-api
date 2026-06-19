@@ -1,0 +1,53 @@
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { PrismaService } from '../common/prisma/prisma.service';
+
+@ApiTags('Audit Log')
+@ApiBearerAuth()
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Controller('audit-log')
+export class AuditController {
+  constructor(private prisma: PrismaService) {}
+
+  @Get()
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  async list(
+    @Query('entityType') entityType?: string,
+    @Query('action') action?: string,
+    @Query('userId') userId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const take = Math.min(Number(limit) || 50, 100);
+    const skip = ((Number(page) || 1) - 1) * take;
+
+    const where: Record<string, unknown> = {};
+    if (entityType) where.entityType = { contains: entityType, mode: 'insensitive' };
+    if (action) where.action = action;
+    if (userId) where.userId = userId;
+    if (dateFrom || dateTo) {
+      where.createdAt = {
+        ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+        ...(dateTo ? { lte: new Date(dateTo) } : {}),
+      };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: where as any,
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      this.prisma.auditLog.count({ where: where as any }),
+    ]);
+
+    return { data, total, page: (skip / take) + 1, limit: take };
+  }
+}

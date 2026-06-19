@@ -35,4 +35,10 @@ export class BankStatementsController {
   @Post(':id/lines')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   addLine(@Param('id') id: string, @Body() body: any) { return this.svc.addLine(id, body); }
+
+  @Post(':id/import-csv')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  importCsv(@Param('id') id: string, @Body() body: { csv: string }) {
+    return this.svc.importCsv(id, body.csv);
+  }
 }

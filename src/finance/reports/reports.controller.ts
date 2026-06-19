@@ -50,6 +50,26 @@ export class ReportsController {
     return this.svc.agedPayables(req.user.companyId, new Date(q.asOf ?? Date.now()));
   }
 
+  @Get('cash-flow')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  cashFlow(@Request() req: any, @Query() q: any) {
+    return this.svc.cashFlow(
+      req.user.companyId,
+      new Date(q.dateFrom),
+      new Date(q.dateTo),
+    );
+  }
+
+  @Get('tax-report')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  taxReport(@Request() req: any, @Query() q: any) {
+    return this.svc.taxReport(
+      req.user.companyId,
+      new Date(q.dateFrom),
+      new Date(q.dateTo),
+    );
+  }
+
   @Get('gl-by-account')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   glByAccount(@Request() req: any, @Query() q: any) {

@@ -93,6 +93,52 @@ export class ReconciliationService {
     return results;
   }
 
+  async suggestMatches(bankStatementLineId: string, companyId: string) {
+    const bsLine = await this.prisma.bankStatementLine.findUnique({
+      where: { id: bankStatementLineId },
+    });
+    if (!bsLine) throw new BadRequestException('Bank statement line not found');
+
+    const bsAmount = Math.abs(Number(bsLine.amount));
+    const bsDate = bsLine.date;
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+
+    const candidates = await this.prisma.journalEntryLine.findMany({
+      where: {
+        reconciled: false,
+        journalEntry: {
+          status: 'POSTED',
+          journal: { companyId },
+          date: {
+            gte: new Date(bsDate.getTime() - sevenDays),
+            lte: new Date(bsDate.getTime() + sevenDays),
+          },
+        },
+      },
+      include: {
+        account: { select: { code: true, name: true } },
+        journalEntry: { select: { id: true, date: true, ref: true } },
+      },
+      take: 200,
+    });
+
+    // Filter by amount match within 0.01
+    const matches = candidates.filter((jel) => {
+      const jelDebit = Number(jel.debit);
+      const jelCredit = Number(jel.credit);
+      return Math.abs(jelDebit - bsAmount) < 0.01 || Math.abs(jelCredit - bsAmount) < 0.01;
+    });
+
+    // Sort by date proximity, take top 5
+    matches.sort((a, b) => {
+      const aDiff = Math.abs(a.journalEntry.date.getTime() - bsDate.getTime());
+      const bDiff = Math.abs(b.journalEntry.date.getTime() - bsDate.getTime());
+      return aDiff - bDiff;
+    });
+
+    return matches.slice(0, 5);
+  }
+
   async unreconcile(reconciliationId: string) {
     const rec = await this.prisma.reconciliation.findUnique({
       where: { id: reconciliationId },

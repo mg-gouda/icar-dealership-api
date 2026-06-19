@@ -75,6 +75,50 @@ export class BankStatementsService {
     });
   }
 
+  async importCsv(statementId: string, csvText: string) {
+    const stmt = await this.prisma.bankStatement.findUnique({ where: { id: statementId } });
+    if (!stmt) throw new NotFoundException('Bank statement not found');
+
+    const rawLines = csvText.split('\n').map((l) => l.trim()).filter(Boolean);
+    // Skip header row
+    const dataLines = rawLines.slice(1);
+    const errors: { row: number; error: string }[] = [];
+    let imported = 0;
+
+    for (let i = 0; i < dataLines.length; i++) {
+      const row = i + 2; // 1-indexed, +1 for header
+      const cols = dataLines[i].split(',').map((c) => c.trim());
+      if (cols.length < 5) {
+        errors.push({ row, error: 'Expected 5 columns: date,description,debit,credit,balance' });
+        continue;
+      }
+
+      const [dateStr, description, debitStr, creditStr] = cols;
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        errors.push({ row, error: `Invalid date: ${dateStr}` });
+        continue;
+      }
+
+      const debit = parseFloat(debitStr) || 0;
+      const credit = parseFloat(creditStr) || 0;
+      // ponytail: amount = credit - debit (positive = inflow)
+      const amount = credit - debit;
+
+      await this.prisma.bankStatementLine.create({
+        data: {
+          bankStatementId: statementId,
+          date,
+          description,
+          amount,
+        },
+      });
+      imported++;
+    }
+
+    return { imported, errors };
+  }
+
   async createBankAccount(data: {
     name: string;
     accountNumber?: string;

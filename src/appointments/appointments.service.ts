@@ -7,21 +7,23 @@ export class AppointmentsService {
 
   findAll(query: {
     locationId?: string; type?: string; status?: string;
-    staffId?: string; date?: string; page?: number; limit?: number;
+    staffId?: string; date?: string; dateFrom?: string; dateTo?: string;
+    page?: number; limit?: number;
   }) {
-    const { locationId, type, status, staffId, date, page = 1, limit = 20 } = query;
+    const { locationId, type, status, staffId, date, dateFrom, dateTo, page = 1, limit = 20 } = query;
+    // ponytail: date=single day; dateFrom+dateTo=range (for calendar view)
+    const dateFilter = date
+      ? { gte: new Date(date), lt: new Date(new Date(date).setDate(new Date(date).getDate() + 1)) }
+      : (dateFrom || dateTo)
+        ? { ...(dateFrom && { gte: new Date(dateFrom) }), ...(dateTo && { lte: new Date(dateTo) }) }
+        : undefined;
     return this.prisma.appointment.findMany({
       where: {
         ...(locationId && { locationId }),
         ...(type && { type: type as any }),
         ...(status && { status: status as any }),
         ...(staffId && { assignedToUserId: staffId }),
-        ...(date && {
-          scheduledAt: {
-            gte: new Date(date),
-            lt: new Date(new Date(date).setDate(new Date(date).getDate() + 1)),
-          },
-        }),
+        ...(dateFilter && { scheduledAt: dateFilter }),
       },
       include: {
         customer: { select: { id: true, name: true, phone: true } },

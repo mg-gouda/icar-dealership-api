@@ -24,7 +24,7 @@ export class PostingService {
             analyticAccount: true,
           },
         },
-        customer: true,
+        customer: { include: { partner: true } },
         commissions: true,
       },
     });
@@ -98,16 +98,94 @@ export class PostingService {
         });
       }
 
-      // 3. Update vehicle status -> SOLD
+      // 3. Create POSTED invoice for the deal (finance visibility + document trail)
+      const partnerId = deal.customer.partnerId;
+      if (!partnerId) {
+        throw new BadRequestException(
+          'Customer has no linked Partner record — cannot create invoice. Link a Partner to the customer first.',
+        );
+      }
+
+      // Lookup VAT tax for vehicle sale line
+      const vatTax = await tx.tax.findFirst({
+        where: { accountId: accounts['2200'], scope: 'SALE' },
+      });
+
+      const vehicleDesc = `Vehicle sale — ${deal.vehicle.make} ${deal.vehicle.model} ${deal.vehicle.year}`;
+      const invoiceLines: Array<{
+        description: string;
+        category: string;
+        accountId: string;
+        quantity: number;
+        unitPrice: number;
+        discount: number;
+        subtotal: number;
+        taxId?: string;
+        vehicleId?: string;
+      }> = [
+        {
+          description: vehicleDesc,
+          category: 'VEHICLE',
+          accountId: accounts['4100'],
+          quantity: 1,
+          unitPrice: salePrice,
+          discount: 0,
+          subtotal: salePrice,
+          taxId: vatTax?.id,
+          vehicleId: deal.vehicleId,
+        },
+      ];
+      if (adminFee > 0) {
+        invoiceLines.push({
+          description: 'Admin Fee',
+          category: 'ADMIN_FEE',
+          accountId: accounts['4210'],
+          quantity: 1,
+          unitPrice: adminFee,
+          discount: 0,
+          subtotal: adminFee,
+        });
+      }
+      if (insuranceFee > 0) {
+        invoiceLines.push({
+          description: 'Compulsory Insurance',
+          category: 'COMPULSORY_INSURANCE',
+          accountId: accounts['4220'],
+          quantity: 1,
+          unitPrice: insuranceFee,
+          discount: 0,
+          subtotal: insuranceFee,
+        });
+      }
+
+      const amountUntaxed = salePrice + adminFee + insuranceFee;
+      await tx.invoice.create({
+        data: {
+          type: 'CUSTOMER_INVOICE',
+          status: 'POSTED',
+          journalId: saleJournal.id,
+          partnerId,
+          dealId: deal.id,
+          date: now,
+          dueDate: now,
+          amountUntaxed,
+          amountTax: vatAmount,
+          amountTotal: totalAR,
+          amountResidual: totalAR,
+          lines: { create: invoiceLines },
+        },
+      });
+
+      // 4. Update vehicle status -> SOLD
       await tx.vehicle.update({ where: { id: deal.vehicleId }, data: { status: 'SOLD' } });
 
-      // 4. Update deal status -> FINALIZED
+      // 5. Update deal status -> FINALIZED
       await tx.deal.update({
         where: { id: dealId },
         data: { status: 'FINALIZED' },
       });
 
-      // 5. Accrue commissions (per commission records already on deal)
+      // 6. Accrue commissions (per commission records already on deal)
       for (const commission of deal.commissions) {
         if (commission.status !== 'ACCRUED') continue;
         await this.accrueCommission(commission.id, userId, tx as any, companyId, generalJournal.id, accounts, analyticAccountId);
