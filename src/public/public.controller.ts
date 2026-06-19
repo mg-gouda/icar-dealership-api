@@ -1,4 +1,4 @@
-import { Controller, Post, Delete, Body, Get, Query, Param, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Delete, Patch, Body, Get, Query, Param, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -270,5 +270,121 @@ export class PublicController {
       vehicleId: body.vehicleId || undefined,
       notes: body.notes,
     }, 'system');
+  }
+
+  // ── Customer Account (B2C JWT required) ──────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('account/deals')
+  @ApiOperation({ summary: 'List logged-in customer\'s deals' })
+  async myDeals(@Request() req: any) {
+    return this.prisma.deal.findMany({
+      where: { customerId: req.user.id },
+      include: {
+        vehicle: {
+          select: { id: true, make: true, model: true, year: true, images: { orderBy: { order: 'asc' }, take: 1 } },
+        },
+        installmentPlan: {
+          select: {
+            id: true, status: true, totalPayable: true, durationMonths: true,
+            installments: {
+              where: { status: { in: ['PENDING', 'OVERDUE'] } },
+              orderBy: { dueDate: 'asc' },
+              take: 1,
+              select: { dueDate: true, totalDue: true, status: true },
+            },
+          },
+        },
+        financeApplication: {
+          select: {
+            id: true, bankFinancingStatus: true, rejectionReason: true,
+            bankApproval: { select: { approvedAmount: true, approvalDate: true, approvalReferenceNumber: true } },
+            requiredDocuments: { select: { id: true, documentType: true, status: true, fileUrl: true } },
+          },
+        },
+        invoices: { where: { type: 'CUSTOMER_INVOICE' }, select: { id: true, amountTotal: true, status: true }, take: 1 },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('account/deals/:id')
+  @ApiOperation({ summary: 'Get full deal detail for logged-in customer' })
+  async myDealDetail(@Param('id') id: string, @Request() req: any) {
+    const deal = await this.prisma.deal.findFirstOrThrow({
+      where: { id, customerId: req.user.id },
+      include: {
+        vehicle: {
+          select: { id: true, make: true, model: true, year: true, vin: true, images: { orderBy: { order: 'asc' }, take: 3 } },
+        },
+        installmentPlan: {
+          include: { installments: { orderBy: { dueDate: 'asc' } } },
+        },
+        financeApplication: {
+          include: {
+            bankApproval: true,
+            requiredDocuments: true,
+          },
+        },
+        invoices: { where: { type: 'CUSTOMER_INVOICE' }, take: 1 },
+      },
+    });
+    return deal;
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Patch('account/profile')
+  @ApiOperation({ summary: 'Update logged-in customer\'s profile' })
+  async updateProfile(@Request() req: any, @Body() body: { name?: string; phone?: string }) {
+    return this.prisma.user.update({
+      where: { id: req.user.id },
+      data: { name: body.name, phone: body.phone },
+      select: { id: true, name: true, email: true, phone: true },
+    });
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('account/profile')
+  @ApiOperation({ summary: 'Get logged-in customer profile' })
+  async myProfile(@Request() req: any) {
+    return this.prisma.user.findUniqueOrThrow({
+      where: { id: req.user.id },
+      select: { id: true, name: true, email: true, phone: true, createdAt: true },
+    });
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('account/deals/:id/documents')
+  @ApiOperation({ summary: 'Customer uploads a bank financing document' })
+  async uploadDealDocument(
+    @Param('id') dealId: string,
+    @Request() req: any,
+    @Body() body: { documentType: string; fileUrl: string },
+  ) {
+    const deal = await this.prisma.deal.findFirstOrThrow({
+      where: { id: dealId, customerId: req.user.id },
+      select: { financeApplication: { select: { id: true } } },
+    });
+    if (!deal.financeApplication) throw new Error('No finance application on this deal');
+    // ponytail: no unique constraint on financeApplicationId+documentType → findFirst+update or create
+    const existing = await this.prisma.bankFinancingDocument.findFirst({
+      where: { financeApplicationId: deal.financeApplication.id, documentType: body.documentType },
+    });
+    if (existing) {
+      return this.prisma.bankFinancingDocument.update({
+        where: { id: existing.id },
+        data: { fileUrl: body.fileUrl, status: 'SUBMITTED', uploadedAt: new Date() },
+      });
+    }
+    return this.prisma.bankFinancingDocument.create({
+      data: {
+        financeApplicationId: deal.financeApplication.id,
+        documentType: body.documentType,
+        fileUrl: body.fileUrl,
+        status: 'SUBMITTED',
+        uploadedAt: new Date(),
+      },
+    });
   }
 }
