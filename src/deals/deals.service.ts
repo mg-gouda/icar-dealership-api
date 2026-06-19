@@ -382,7 +382,7 @@ export class DealsService {
 
   // ── Commission splits ─────────────────────────────────────────────────────
 
-  private async resolveCommissionAmount(baseAmount: number, splitPercentage: number, commissionPlanId?: string): Promise<number> {
+  private async resolveCommissionAmount(baseAmount: number, splitPercentage: number, commissionPlanId?: string, repUserId?: string): Promise<number> {
     if (!commissionPlanId) return (baseAmount * splitPercentage) / 100;
 
     const plan = await this.prisma.commissionPlan.findUnique({
@@ -401,8 +401,25 @@ export class DealsService {
       return (baseAmount * planRate / 100 * splitPercentage) / 100;
     }
     if (plan.basisType === 'TIERED') {
-      // Find the applicable tier by minValue threshold
-      const applicableTier = [...plan.tiers].reverse().find((t) => baseAmount >= Number(t.minValue));
+      // ponytail: cumulative volume = sum of rep's FINALIZED deal salePrices this calendar month
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+      let cumulativeVolume = baseAmount;
+      if (repUserId) {
+        const repDeals = await this.prisma.deal.findMany({
+          where: {
+            status: 'FINALIZED',
+            commissions: { some: { userId: repUserId } },
+            updatedAt: { gte: monthStart, lte: monthEnd },
+          },
+          select: { salePrice: true },
+        });
+        cumulativeVolume = repDeals.reduce((s, d) => s + Number(d.salePrice), 0) + baseAmount;
+      }
+
+      const applicableTier = [...plan.tiers].reverse().find((t) => cumulativeVolume >= Number(t.minValue));
       if (!applicableTier) return 0;
       const tierBase = applicableTier.rateType === 'FLAT_AMOUNT'
         ? Number(applicableTier.rateValue)
@@ -419,7 +436,7 @@ export class DealsService {
     const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id: dealId } });
     if (deal.status === 'FINALIZED') throw new BadRequestException('Cannot modify commissions on a finalized deal');
 
-    const calculatedAmount = await this.resolveCommissionAmount(data.baseAmount, data.splitPercentage, data.commissionPlanId);
+    const calculatedAmount = await this.resolveCommissionAmount(data.baseAmount, data.splitPercentage, data.commissionPlanId, data.userId);
 
     const commission = await this.prisma.dealCommission.create({
       data: {
@@ -445,6 +462,11 @@ export class DealsService {
 
     await this.audit.log({ entity: 'DealCommission', entityId: commission.id, action: 'CREATE', userId, newValue: commission });
     return commission;
+  }
+
+  // ponytail: lightweight count for notification bell
+  async countOverdueInstallments() {
+    return this.prisma.installmentLine.count({ where: { status: 'OVERDUE' } });
   }
 
   async removeCommissionSplit(dealId: string, commissionId: string, userId: string) {

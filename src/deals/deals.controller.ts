@@ -27,6 +27,13 @@ export class DealsController {
     return this.svc.findAll({ ...q, locationId });
   }
 
+  // ponytail: static route before :id wildcard
+  @Get('installments/overdue-count')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  countOverdueInstallments() {
+    return this.svc.countOverdueInstallments().then((count) => ({ count }));
+  }
+
   @Get(':id')
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   findById(@Param('id') id: string) {
