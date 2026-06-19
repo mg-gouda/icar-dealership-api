@@ -160,6 +160,25 @@ export class ReconciliationService {
     return { deleted: true };
   }
 
+  async completeReconciliation(accountId: string, month: string, endingBalance: number, userId: string) {
+    const [year, mon] = month.split('-').map(Number);
+    const from = new Date(year, mon - 1, 1);
+    const to = new Date(year, mon, 0, 23, 59, 59);
+
+    const statements = await this.prisma.bankStatement.findMany({
+      where: { bankAccountId: accountId, endDate: { gte: from, lte: to } },
+      include: { lines: { select: { reconciled: true } } },
+    });
+
+    const allReconciled = statements.every(s => s.lines.every(l => l.reconciled));
+    const result = await this.prisma.bankStatement.updateMany({
+      where: { bankAccountId: accountId, endDate: { gte: from, lte: to } },
+      data: { endingBalance },
+    });
+
+    return { completed: true, statements: result.count, allLinesReconciled: allReconciled, endingBalance };
+  }
+
   // ponytail: inline "Create Entry" for unmatched bank lines (fees, interest)
   async createAndReconcileUnmatched(dto: {
     bankStatementLineId: string;

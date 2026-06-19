@@ -187,4 +187,40 @@ export class AssetsService {
 
     return lines;
   }
+
+  async depreciateByMonth(assetId: string, month: string, journalId: string | undefined, userId: string) {
+    // Find the next unposted line whose date falls within `month` (YYYY-MM)
+    const [year, mon] = month.split('-').map(Number);
+    const from = new Date(year, mon - 1, 1);
+    const to = new Date(year, mon, 0); // last day of month
+    const line = await this.prisma.assetDepreciationLine.findFirst({
+      where: { assetId, posted: false, date: { gte: from, lte: to } },
+      orderBy: { sequence: 'asc' },
+    });
+    if (!line) throw new BadRequestException(`No unposted depreciation line for ${month}`);
+
+    const journal = journalId
+      ? await this.prisma.journal.findUniqueOrThrow({ where: { id: journalId } })
+      : await this.prisma.journal.findFirstOrThrow({ where: { type: 'GENERAL' } });
+
+    return this.postDepreciationLine(assetId, line.id, journal.id);
+  }
+
+  async dispose(assetId: string, body: { date: string; proceedsAmount?: number; journalId?: string }, userId: string) {
+    const asset = await this.getById(assetId);
+    if ((asset as any).state === 'CLOSED') throw new BadRequestException('Asset already closed/disposed');
+    const proceeds = new Decimal(body.proceedsAmount ?? 0);
+    const postedLines: Array<{ accumulatedAmount: string | number }> = (asset as any).depreciationLines?.filter((l: any) => l.posted) ?? [];
+    const accumulated = postedLines.length
+      ? new Decimal(postedLines[postedLines.length - 1].accumulatedAmount)
+      : new Decimal(0);
+    const bookValue = new Decimal((asset as any).originalValue).minus(accumulated);
+    const gainLoss = proceeds.minus(bookValue);
+
+    const updated = await this.prisma.asset.update({
+      where: { id: assetId },
+      data: { state: 'CLOSED' },
+    });
+    return { asset: updated, bookValue, proceeds, gainLoss };
+  }
 }

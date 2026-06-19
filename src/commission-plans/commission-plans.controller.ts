@@ -8,7 +8,7 @@ import { CommissionPlansService } from './commission-plans.service';
 @ApiTags('CommissionPlans')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Controller({ path: 'commission-plans', version: '1' })
+@Controller({ path: 'finance/commission-plans', version: '1' })
 export class CommissionPlansController {
   constructor(private readonly svc: CommissionPlansService) {}
 

@@ -46,4 +46,25 @@ export class AssetsController {
   createFromInvoiceLine(@Body() body: { invoiceLineId: string; [k: string]: unknown }, @Request() req: any) {
     return this.svc.createFromInvoiceLine(body.invoiceLineId, body, req.user.id);
   }
+
+  // UI alias: POST /:id/depreciate { month: 'YYYY-MM', journalId? }
+  @Post(':id/depreciate')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  depreciateByMonth(
+    @Param('id') id: string,
+    @Body() body: { month: string; journalId?: string },
+    @Request() req: any,
+  ) {
+    return this.svc.depreciateByMonth(id, body.month, body.journalId, req.user.id);
+  }
+
+  @Post(':id/dispose')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  dispose(
+    @Param('id') id: string,
+    @Body() body: { date: string; proceedsAmount?: number; journalId?: string },
+    @Request() req: any,
+  ) {
+    return this.svc.dispose(id, body, req.user.id);
+  }
 }

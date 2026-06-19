@@ -47,6 +47,10 @@ export class GlService {
     return account;
   }
 
+  async setAccountActive(id: string, isActive: boolean) {
+    return this.prisma.account.update({ where: { id }, data: { isActive } });
+  }
+
   // -- Journals --
 
   getJournals(companyId: string, locationId?: string) {
@@ -185,6 +189,15 @@ export class GlService {
     });
     await this.audit.log({ entity: 'JournalEntry', entityId: id, action: 'REVERSE', userId, newValue: { reversalId: reversal.id } });
     return reversal;
+  }
+
+  async deleteEntry(id: string, userId: string) {
+    const entry = await this.getEntry(id);
+    if (entry.status !== 'DRAFT') throw new BadRequestException('Only DRAFT entries can be deleted');
+    await this.prisma.journalEntryLine.deleteMany({ where: { journalEntryId: id } });
+    await this.prisma.journalEntry.delete({ where: { id } });
+    await this.audit.log({ entity: 'JournalEntry', entityId: id, action: 'DELETE', userId });
+    return { deleted: true };
   }
 
   async duplicateEntry(id: string, userId: string) {

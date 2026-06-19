@@ -76,4 +76,11 @@ export class VehiclesController {
   bulkImport(@Body() body: { csv: string }) {
     return this.vehiclesService.bulkImport(body.csv);
   }
+
+  // ponytail: VIN decode stub — returns null until VIN decoder API key is configured
+  @Post(':id/decode-vin')
+  @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  decodeVin(@Param('id') id: string, @Body('vin') vin: string) {
+    return { vin: vin ?? null, decoded: null, message: 'VIN decoder API key not yet configured' };
+  }
 }

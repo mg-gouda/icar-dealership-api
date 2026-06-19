@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -51,5 +51,16 @@ export class PurchaseOrdersController {
     @Body() body: { lines: { purchaseOrderLineId: string; quantityReceived: number }[] },
   ) {
     return this.svc.receive(id, body.lines);
+  }
+
+  // ponytail: approve price/qty variances on 3-way match so bill can be posted
+  @Post(':id/approve-variances')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  approveVariances(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Request() req: any,
+  ) {
+    return this.svc.approveVariances(id, body.reason, req.user.id);
   }
 }

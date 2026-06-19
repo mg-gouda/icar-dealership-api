@@ -40,4 +40,30 @@ export class ReconciliationController {
   createUnmatched(@Body() body: any, @Request() req: any) {
     return this.svc.createAndReconcileUnmatched({ ...body, userId: req.user.id });
   }
+
+  // UI aliases
+  @Get('unmatched')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  unmatchedAlias(@Request() req: any, @Query() q: any) {
+    return this.svc.getUnreconciledLines(req.user.companyId, q);
+  }
+
+  @Post('match')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  matchAlias(@Body() body: { statementLineId: string; journalLineId: string; amount: number }) {
+    return this.svc.reconcile([{ bankStatementLineId: body.statementLineId, journalEntryLineId: body.journalLineId, amount: body.amount }]);
+  }
+
+  @Post('unmatch')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  unmatchAlias(@Body() body: { statementLineId: string; reconciliationId?: string }) {
+    if (!body.reconciliationId) throw new BadRequestException('reconciliationId required');
+    return this.svc.unreconcile(body.reconciliationId);
+  }
+
+  @Post('complete')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  complete(@Body() body: { accountId: string; month: string; endingBalance: number }, @Request() req: any) {
+    return this.svc.completeReconciliation(body.accountId, body.month, body.endingBalance, req.user.id);
+  }
 }

@@ -10,7 +10,7 @@ import { CommissionsService } from './commissions.service';
 @ApiTags('Commissions')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard, LocationScopeGuard)
-@Controller({ path: 'commissions', version: '1' })
+@Controller({ path: 'finance/commissions', version: '1' })
 export class CommissionsController {
   constructor(private readonly svc: CommissionsService) {}
 
@@ -67,6 +67,16 @@ export class CommissionsController {
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   batchPay(
     @Body() body: { commissionIds: string[]; journalId: string },
+    @Req() req: any,
+  ) {
+    return this.svc.batchPay(body.commissionIds, body.journalId, req.user.sub);
+  }
+
+  // UI alias: POST /finance/commissions/pay
+  @Post('pay')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  payAlias(
+    @Body() body: { commissionIds: string[]; journalId: string; paymentMethod?: string; reference?: string },
     @Req() req: any,
   ) {
     return this.svc.batchPay(body.commissionIds, body.journalId, req.user.sub);

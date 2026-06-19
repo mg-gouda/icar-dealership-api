@@ -45,7 +45,7 @@ export class VehiclesService {
       this.prisma.vehicle.count({ where }),
     ]);
 
-    return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    return { items: data, total, page, limit };
   }
 
   async findById(id: string) {

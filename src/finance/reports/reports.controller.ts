@@ -83,4 +83,23 @@ export class ReportsController {
       Number(q.limit ?? 50),
     );
   }
+
+  // UI path aliases
+  @Get('profit-loss')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  incomeStatementAlias(@Request() req: any, @Query() q: any) {
+    return this.svc.incomeStatement(req.user.companyId, new Date(q.from ?? q.dateFrom), new Date(q.to ?? q.dateTo));
+  }
+
+  @Get('aged-ar')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  agedArAlias(@Request() req: any, @Query() q: any) {
+    return this.svc.agedReceivables(req.user.companyId, new Date(q.asOf ?? Date.now()));
+  }
+
+  @Get('aged-ap')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  agedApAlias(@Request() req: any, @Query() q: any) {
+    return this.svc.agedPayables(req.user.companyId, new Date(q.asOf ?? Date.now()));
+  }
 }

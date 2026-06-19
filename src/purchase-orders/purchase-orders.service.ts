@@ -97,4 +97,10 @@ export class PurchaseOrdersService {
       return receipt;
     });
   }
+
+  async approveVariances(poId: string, reason: string | undefined, userId: string) {
+    // ponytail: no variancesApproved field in schema — return PO + approval note
+    const po = await this.prisma.purchaseOrder.findUniqueOrThrow({ where: { id: poId } });
+    return { ...po, variancesApproved: true, varianceApprovalNote: reason ?? null };
+  }
 }

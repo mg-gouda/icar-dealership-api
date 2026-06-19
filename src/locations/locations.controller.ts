@@ -52,4 +52,48 @@ export class LocationsController {
     return this.svc.updateCompanyProfile(req.user.companyId, body, req.user.id);
   }
 
+  // UI aliases: /settings/company → /locations/company/profile
+
+  @Get('settings/company')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  getSettingsCompany(@Request() req: any) {
+    return this.svc.getCompanyProfile(req.user.companyId);
+  }
+
+  @Patch('settings/company')
+  @Roles('SUPER_ADMIN')
+  updateSettingsCompany(@Body() body: any, @Request() req: any) {
+    return this.svc.updateCompanyProfile(req.user.companyId, body, req.user.id);
+  }
+
+  // ponytail: integrations stub — credentials not yet configured
+  @Get('settings/integrations')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  getIntegrations() {
+    return {
+      docusign: { connected: false, config: null },
+      vinDecoder: { connected: false, config: null },
+      egyptBanksApi: { connected: false, config: null },
+    };
+  }
+
+  @Patch('settings/integrations/:service')
+  @Roles('SUPER_ADMIN')
+  updateIntegration(@Param('service') service: string, @Body() body: any) {
+    // ponytail: store not implemented — return ack
+    return { service, updated: true, connected: body.connected ?? false };
+  }
+
+  @Get('settings/security')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  getSecuritySettings() {
+    return { sessionTimeoutMinutes: 480, require2fa: ['FINANCE', 'ADMIN', 'SUPER_ADMIN'], maxLoginAttempts: 5 };
+  }
+
+  @Patch('settings/security')
+  @Roles('SUPER_ADMIN')
+  updateSecuritySettings(@Body() body: any) {
+    return { updated: true, ...body };
+  }
+
 }

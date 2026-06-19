@@ -86,4 +86,11 @@ export class UsersController {
   ) {
     return this.usersService.upsertWorkingHours(id, body.hours);
   }
+
+  @Get(':id/2fa-status')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  async twoFaStatus(@Param('id') id: string) {
+    const user = await this.usersService.findById(id);
+    return { userId: id, totpEnabled: !!(user as any).totpSecret };
+  }
 }
