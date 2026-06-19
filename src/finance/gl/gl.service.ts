@@ -187,6 +187,30 @@ export class GlService {
     return reversal;
   }
 
+  async duplicateEntry(id: string, userId: string) {
+    const entry = await this.getEntry(id);
+    const copy = await this.prisma.journalEntry.create({
+      data: {
+        journalId: entry.journalId,
+        date: new Date(),
+        ref: `COPY-${entry.ref ?? entry.id.slice(-8)}`,
+        status: 'DRAFT',
+        lines: {
+          create: entry.lines.map((l) => ({
+            accountId: l.accountId,
+            partnerId: l.partnerId,
+            debit: Number(l.debit),
+            credit: Number(l.credit),
+            label: l.label,
+            analyticAccountId: l.analyticAccountId,
+          })),
+        },
+      },
+    });
+    await this.audit.log({ entity: 'JournalEntry', entityId: id, action: 'DUPLICATE', userId, newValue: { copyId: copy.id } });
+    return copy;
+  }
+
   // -- Trial Balance --
   // JournalEntry has no companyId → filter via journal.companyId
 

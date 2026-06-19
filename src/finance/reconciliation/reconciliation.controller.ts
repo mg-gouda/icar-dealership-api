@@ -34,4 +34,10 @@ export class ReconciliationController {
   @Delete(':id')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   unreconcile(@Param('id') id: string) { return this.svc.unreconcile(id); }
+
+  @Post('unmatched-entry')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  createUnmatched(@Body() body: any, @Request() req: any) {
+    return this.svc.createAndReconcileUnmatched({ ...body, userId: req.user.id });
+  }
 }

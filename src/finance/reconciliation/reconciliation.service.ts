@@ -159,4 +159,61 @@ export class ReconciliationService {
 
     return { deleted: true };
   }
+
+  // ponytail: inline "Create Entry" for unmatched bank lines (fees, interest)
+  async createAndReconcileUnmatched(dto: {
+    bankStatementLineId: string;
+    accountId: string;
+    bankAccountId: string; // GL account for the bank side
+    description: string;
+    amount: number; // positive = debit expense, negative = credit income
+    journalId: string;
+    date: string;
+    userId: string;
+  }) {
+    const bsl = await this.prisma.bankStatementLine.findUniqueOrThrow({
+      where: { id: dto.bankStatementLineId },
+    });
+    if (bsl.reconciled) throw new BadRequestException('Line already reconciled');
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const je = await tx.journalEntry.create({
+        data: {
+          journalId: dto.journalId,
+          date: new Date(dto.date),
+          ref: `BANK-${dto.bankStatementLineId.slice(0, 8)}`,
+          status: 'POSTED',
+        },
+      });
+
+      const expenseLine = await tx.journalEntryLine.create({
+        data: {
+          journalEntryId: je.id,
+          accountId: dto.accountId,
+          debit: dto.amount > 0 ? dto.amount : 0,
+          credit: dto.amount < 0 ? -dto.amount : 0,
+          label: dto.description,
+        },
+      });
+
+      await tx.journalEntryLine.create({
+        data: {
+          journalEntryId: je.id,
+          accountId: dto.bankAccountId,
+          debit: dto.amount < 0 ? -dto.amount : 0,
+          credit: dto.amount > 0 ? dto.amount : 0,
+          label: 'Bank',
+        },
+      });
+
+      const rec = await tx.reconciliation.create({
+        data: { bankStatementLineId: dto.bankStatementLineId, journalEntryLineId: expenseLine.id, amount: Math.abs(dto.amount) },
+      });
+      await tx.bankStatementLine.update({ where: { id: dto.bankStatementLineId }, data: { reconciled: true } });
+      await tx.journalEntryLine.update({ where: { id: expenseLine.id }, data: { reconciled: true, matchingNumber: rec.id } });
+      return { journalEntryId: je.id, reconciliationId: rec.id };
+    });
+
+    return result;
+  }
 }

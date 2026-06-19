@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -32,5 +32,18 @@ export class AssetsController {
     @Body('journalId') journalId: string,
   ) {
     return this.svc.postDepreciationLine(id, lineId, journalId);
+  }
+
+  @Patch(':id')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  update(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.svc.update(id, body, req.user.id);
+  }
+
+  // ponytail: prefill asset from a vendor bill line (fixed-asset account posting trigger)
+  @Post('from-invoice-line')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  createFromInvoiceLine(@Body() body: { invoiceLineId: string; [k: string]: unknown }, @Request() req: any) {
+    return this.svc.createFromInvoiceLine(body.invoiceLineId, body, req.user.id);
   }
 }

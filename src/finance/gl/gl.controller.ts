@@ -71,6 +71,12 @@ export class GlController {
     return this.svc.reverseEntry(id, req.user.id);
   }
 
+  @Post('entries/:id/duplicate')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  duplicateEntry(@Param('id') id: string, @Request() req: any) {
+    return this.svc.duplicateEntry(id, req.user.id);
+  }
+
   // Reports
   @Get('trial-balance')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')

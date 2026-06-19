@@ -73,6 +73,31 @@ export class AssetsService {
     return this.getById(asset.id);
   }
 
+  async update(id: string, data: any, userId: string) {
+    return this.prisma.asset.update({ where: { id }, data });
+  }
+
+  async createFromInvoiceLine(invoiceLineId: string, overrides: Record<string, unknown>, userId: string) {
+    const line = await this.prisma.invoiceLine.findUniqueOrThrow({
+      where: { id: invoiceLineId },
+      include: { invoice: { select: { id: true, partnerId: true } } },
+    });
+    // ponytail: pre-fill asset from bill line values; caller can override any field
+    return this.create({
+      name: String(overrides.name ?? line.description ?? 'Asset'),
+      assetAccountId: String(overrides.assetAccountId ?? line.accountId),
+      depreciationExpenseAccountId: String(overrides.depreciationExpenseAccountId ?? ''),
+      accumulatedDepAccountId: String(overrides.accumulatedDepAccountId ?? ''),
+      originalValue: Number(overrides.originalValue ?? line.subtotal),
+      salvageValue: overrides.salvageValue != null ? Number(overrides.salvageValue) : 0,
+      method: String(overrides.method ?? 'LINEAR'),
+      durationMonths: Number(overrides.durationMonths ?? 60),
+      startDate: overrides.startDate ? new Date(String(overrides.startDate)) : new Date(),
+      vendorBillId: line.invoiceId,
+      ...(overrides as any),
+    });
+  }
+
   async postDepreciationLine(assetId: string, lineId: string, journalId: string) {
     const line = await this.prisma.assetDepreciationLine.findFirst({
       where: { id: lineId, assetId },
