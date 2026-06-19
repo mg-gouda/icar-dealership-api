@@ -231,6 +231,9 @@ model Company {
   taxId                String?
   fiscalYearStartMonth Int      @default(1)
   address              String?
+  // Fee bounds: SALES_REP/MANAGER cannot set adminFee/insuranceFee outside ±X% of default
+  adminFeeBoundsPercent     Decimal? @default(20) @db.Decimal(5, 2)
+  insuranceFeeBoundsPercent Decimal? @default(20) @db.Decimal(5, 2)
 
   locations   Location[]
   accounts    Account[]

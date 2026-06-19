@@ -111,6 +111,11 @@ export class DealsService {
       throw new BadRequestException('Purchase method cannot be changed after deal leaves DRAFT status');
     }
 
+    // Fee bounds — role comes from the controller via userId lookup or passed explicitly
+    // ponytail: userId is passed; look up the user's role for bounds check
+    const actor = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { role: true } });
+    await this.assertFeeBounds(deal.locationId, actor.role, data.adminFee, data.insuranceFee);
+
     const updated = await this.prisma.deal.update({ where: { id }, data: data as any });
     await this.audit.log({ entity: 'Deal', entityId: id, action: 'UPDATE', userId, newValue: data });
     return updated;
@@ -476,5 +481,39 @@ export class DealsService {
     await this.prisma.dealCommission.delete({ where: { id: commissionId } });
     await this.audit.log({ entity: 'DealCommission', entityId: commissionId, action: 'DELETE', userId });
     return { deleted: true };
+  }
+
+  // ponytail: bounds enforcement per spec 09 — SALES_REP/MANAGER can't deviate >X% from location default
+  private async assertFeeBounds(
+    locationId: string, userRole: string,
+    adminFee?: number, insuranceFee?: number,
+  ) {
+    if (!adminFee && !insuranceFee) return;
+    if (['FINANCE', 'ADMIN', 'SUPER_ADMIN'].includes(userRole)) return;
+    const loc = await this.prisma.location.findUniqueOrThrow({
+      where: { id: locationId },
+      include: { company: { select: { adminFeeBoundsPercent: true, insuranceFeeBoundsPercent: true } } },
+    });
+    const adminBound = Number(loc.company?.adminFeeBoundsPercent ?? 20) / 100;
+    const insBound = Number(loc.company?.insuranceFeeBoundsPercent ?? 20) / 100;
+    const defaultAdmin = Number(loc.defaultAdminFee ?? 0);
+    const defaultIns = Number(loc.defaultInsuranceFee ?? 0);
+
+    if (adminFee !== undefined && defaultAdmin > 0) {
+      const ratio = Math.abs(adminFee - defaultAdmin) / defaultAdmin;
+      if (ratio > adminBound) {
+        throw new ForbiddenException(
+          `Admin fee ${adminFee} is outside ±${adminBound * 100}% of location default ${defaultAdmin}. Request a Finance override.`,
+        );
+      }
+    }
+    if (insuranceFee !== undefined && defaultIns > 0) {
+      const ratio = Math.abs(insuranceFee - defaultIns) / defaultIns;
+      if (ratio > insBound) {
+        throw new ForbiddenException(
+          `Insurance fee ${insuranceFee} is outside ±${insBound * 100}% of location default ${defaultIns}. Request a Finance override.`,
+        );
+      }
+    }
   }
 }
