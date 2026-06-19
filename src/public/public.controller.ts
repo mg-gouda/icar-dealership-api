@@ -149,6 +149,100 @@ export class PublicController {
     await this.prisma.favorite.deleteMany({ where: { customerId: req.user.id, vehicleId } });
   }
 
+  @Get('vehicles/compare')
+  @ApiOperation({ summary: 'Compare up to 4 vehicles by ID' })
+  async compareVehicles(@Query('ids') ids: string) {
+    if (!ids) return [];
+    const idList = ids.split(',').slice(0, 4).map((s) => s.trim()).filter(Boolean);
+    return this.prisma.vehicle.findMany({
+      where: { id: { in: idList }, status: 'AVAILABLE' },
+      include: {
+        images: { orderBy: { order: 'asc' }, take: 1 },
+        location: { select: { name: true, city: true } },
+        features: { select: { feature: true } },
+      },
+    });
+  }
+
+  @Get('locations/:id/availability')
+  @ApiOperation({ summary: 'Get available appointment slots for a location (B2C test drive scheduler)' })
+  async getAvailability(
+    @Param('id') locationId: string,
+    @Query('date') date: string,
+    @Query('userId') userId?: string,
+  ) {
+    const targetDate = new Date(date);
+    const dayOfWeek = targetDate.getDay(); // 0=Sun
+
+    // Get working hours for the user (or any SALES_REP at this location)
+    const user = userId
+      ? await this.prisma.user.findUnique({ where: { id: userId }, include: { workingHours: true } })
+      : await this.prisma.user.findFirst({
+          where: { locationId, role: 'SALES_REP', isActive: true },
+          include: { workingHours: true },
+        });
+
+    const hours = user?.workingHours?.find((h: any) => h.dayOfWeek === dayOfWeek);
+    if (!hours) return { available: false, slots: [] };
+
+    // Generate 30-min slots within working hours
+    const [startH, startM] = hours.startTime.split(':').map(Number);
+    const [endH, endM] = hours.endTime.split(':').map(Number);
+    const startMins = startH * 60 + startM;
+    const endMins = endH * 60 + endM;
+
+    // Fetch booked slots
+    const startOfDay = new Date(targetDate); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate); endOfDay.setHours(23, 59, 59, 999);
+    const booked = await this.prisma.appointment.findMany({
+      where: { locationId, scheduledAt: { gte: startOfDay, lte: endOfDay }, status: { in: ['SCHEDULED', 'COMPLETED'] } },
+      select: { scheduledAt: true },
+    });
+    const bookedMins = new Set(booked.map((a: any) => {
+      const d = new Date(a.scheduledAt);
+      return d.getHours() * 60 + d.getMinutes();
+    }));
+
+    const slots: string[] = [];
+    for (let m = startMins; m < endMins - 29; m += 30) {
+      if (!bookedMins.has(m)) {
+        const h = String(Math.floor(m / 60)).padStart(2, '0');
+        const min = String(m % 60).padStart(2, '0');
+        slots.push(`${h}:${min}`);
+      }
+    }
+
+    return { available: slots.length > 0, date, slots };
+  }
+
+  // ponytail: Appointment.customerId is required → B2C test drive becomes a Lead
+  // Admin converts Lead → Appointment after calling customer back
+  @Post('appointments')
+  @ApiOperation({ summary: 'Request a test drive (B2C, no auth — creates Lead)' })
+  async bookTestDrive(@Body() body: {
+    locationId: string;
+    vehicleId?: string;
+    name: string;
+    phone?: string;
+    email?: string;
+    preferredDate?: string;
+    notes?: string;
+  }) {
+    const locationId = body.locationId ?? (await this.prisma.location.findFirst({
+      orderBy: { createdAt: 'asc' }, select: { id: true },
+    }))?.id;
+    if (!locationId) throw new Error('No location configured');
+    return this.leadsService.create({
+      locationId,
+      name: body.name,
+      phone: body.phone,
+      email: body.email,
+      source: 'TEST_DRIVE',
+      vehicleId: body.vehicleId ?? undefined,
+      notes: body.preferredDate ? `Preferred date: ${body.preferredDate}. ${body.notes ?? ''}`.trim() : body.notes,
+    }, 'system');
+  }
+
   @Post('leads')
   @ApiOperation({ summary: 'Submit a lead from the B2C website (no auth required)' })
   async createLead(@Body() body: {
