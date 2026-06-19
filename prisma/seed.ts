@@ -178,6 +178,38 @@ async function main() {
     },
   });
 
+  // VAT 14% Purchase (AP side)
+  await prisma.tax.upsert({
+    where: { id: 'tax-vat14-purchase' },
+    update: {},
+    create: {
+      id: 'tax-vat14-purchase',
+      name: 'VAT 14% (Purchase)',
+      amount: 14,
+      computation: 'PERCENT',
+      scope: 'PURCHASE',
+      includedInPrice: false,
+      taxGroupId: vatGroup.id,
+      accountId: coa['2200'],
+    },
+  });
+
+  // VAT 0% Exempt
+  await prisma.tax.upsert({
+    where: { id: 'tax-exempt' },
+    update: {},
+    create: {
+      id: 'tax-exempt',
+      name: 'VAT Exempt (0%)',
+      amount: 0,
+      computation: 'PERCENT',
+      scope: 'SALE',
+      includedInPrice: false,
+      taxGroupId: vatGroup.id,
+      accountId: coa['2200'],
+    },
+  });
+
   // ── 6. Payment Terms ──────────────────────────────────────────────────────
   const dueOnReceipt = await prisma.paymentTerm.upsert({
     where: { id: 'pt-due-on-receipt' },
