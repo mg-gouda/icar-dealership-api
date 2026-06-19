@@ -53,11 +53,16 @@ export class AuthService {
     return user;
   }
 
-  private recordFailedAttempt(email: string) {
+  private async recordFailedAttempt(email: string) {
     const existing = this.loginAttempts.get(email) ?? { count: 0, lockedUntil: null };
     existing.count += 1;
-    if (existing.count >= this.MAX_ATTEMPTS) {
+    const nowLocked = existing.count >= this.MAX_ATTEMPTS && !existing.lockedUntil;
+    if (nowLocked) {
       existing.lockedUntil = new Date(Date.now() + this.LOCKOUT_MS);
+      // ponytail: fire-and-forget lockout audit — look up userId to satisfy FK
+      this.prisma.user.findUnique({ where: { email }, select: { id: true } })
+        .then((u) => { if (u) this.audit.log({ entity: 'Auth', entityId: u.id, action: 'ACCOUNT_LOCKED', userId: u.id }); })
+        .catch(() => {});
     }
     this.loginAttempts.set(email, existing);
   }
