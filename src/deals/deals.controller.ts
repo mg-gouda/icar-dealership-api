@@ -27,11 +27,17 @@ export class DealsController {
     return this.svc.findAll({ ...q, locationId });
   }
 
-  // ponytail: static route before :id wildcard
+  // ponytail: static routes before :id wildcard
   @Get('installments/overdue-count')
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   countOverdueInstallments() {
     return this.svc.countOverdueInstallments().then((count) => ({ count }));
+  }
+
+  @Get('installments/overdue')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  listOverdueInstallments(@Query('limit') limit?: string) {
+    return this.svc.listOverdueInstallments(limit ? Number(limit) : 20);
   }
 
   @Get(':id')
@@ -118,6 +124,15 @@ export class DealsController {
     @Request() req: any,
   ) {
     return this.svc.collectInstallment(id, lineId, req.user.id);
+  }
+
+  @Post(':id/installment-plan/lines/:lineId/remind')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  remindInstallment(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+  ) {
+    return this.svc.sendInstallmentReminder(id, lineId);
   }
 
   // ── Bank financing disbursement ───────────────────────────────────────────

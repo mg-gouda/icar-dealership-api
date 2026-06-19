@@ -289,6 +289,33 @@ export class DealsService {
     return this.findById(dealId);
   }
 
+  async sendInstallmentReminder(dealId: string, lineId: string) {
+    const line = await this.prisma.installmentLine.findUniqueOrThrow({
+      where: { id: lineId },
+      include: {
+        installmentPlan: {
+          include: {
+            deal: { include: { customer: { select: { email: true, name: true } } } },
+          },
+        },
+      },
+    });
+    if (line.installmentPlan.dealId !== dealId) {
+      throw new BadRequestException('Installment line does not belong to this deal');
+    }
+    const customer = line.installmentPlan.deal.customer;
+    if (customer?.email) {
+      this.mail.send({
+        to: customer.email,
+        subject: 'Installment Payment Reminder',
+        html: `<p>Dear ${customer.name ?? 'Customer'},</p>
+<p>This is a reminder that your installment payment of <strong>${Number(line.totalDue).toLocaleString()} EGP</strong> was due on <strong>${new Date(line.dueDate).toLocaleDateString('en-EG')}</strong>.</p>
+<p>Please arrange payment at your earliest convenience.</p>`,
+      }).catch(() => {/* non-critical */});
+    }
+    return { sent: !!customer?.email };
+  }
+
   // ── Bank disbursement ─────────────────────────────────────────────────────
 
   async postBankDisbursement(dealId: string, userId: string) {
@@ -481,9 +508,23 @@ export class DealsService {
     return commission;
   }
 
-  // ponytail: lightweight count for notification bell
   async countOverdueInstallments() {
     return this.prisma.installmentLine.count({ where: { status: 'OVERDUE' } });
+  }
+
+  async listOverdueInstallments(limit = 20) {
+    return this.prisma.installmentLine.findMany({
+      where: { status: 'OVERDUE' },
+      include: {
+        installmentPlan: {
+          include: {
+            deal: { select: { id: true, customer: { select: { name: true } } } },
+          },
+        },
+      },
+      orderBy: { dueDate: 'asc' },
+      take: limit,
+    });
   }
 
   async removeCommissionSplit(dealId: string, commissionId: string, userId: string) {
