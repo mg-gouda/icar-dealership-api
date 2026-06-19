@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -46,5 +46,44 @@ export class UsersController {
   @Roles('ADMIN', 'SUPER_ADMIN')
   activate(@Param('id') id: string) {
     return this.usersService.setActive(id, true);
+  }
+
+  // ── Permission overrides ──────────────────────────────────────────────────
+
+  @Post(':id/permissions')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  grantPermission(
+    @Param('id') id: string,
+    @Body() body: { permissionKey: string; granted?: boolean },
+    @Request() req: any,
+  ) {
+    return this.usersService.grantPermission(id, body.permissionKey, body.granted ?? true, req.user.id);
+  }
+
+  @Delete(':id/permissions/:permissionKey')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  revokePermission(
+    @Param('id') id: string,
+    @Param('permissionKey') permissionKey: string,
+    @Request() req: any,
+  ) {
+    return this.usersService.revokePermission(id, permissionKey, req.user.id);
+  }
+
+  // ── Working hours ─────────────────────────────────────────────────────────
+
+  @Get(':id/working-hours')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  getWorkingHours(@Param('id') id: string) {
+    return this.usersService.getWorkingHours(id);
+  }
+
+  @Patch(':id/working-hours')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  upsertWorkingHours(
+    @Param('id') id: string,
+    @Body() body: { hours: Array<{ dayOfWeek: number; startTime: string; endTime: string }> },
+  ) {
+    return this.usersService.upsertWorkingHours(id, body.hours);
   }
 }

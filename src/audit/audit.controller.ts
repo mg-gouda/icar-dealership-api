@@ -13,23 +13,27 @@ export class AuditController {
   constructor(private prisma: PrismaService) {}
 
   @Get()
-  @Roles('ADMIN', 'SUPER_ADMIN')
+  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   async list(
     @Query('entityType') entityType?: string,
+    @Query('entityId') entityId?: string,
     @Query('action') action?: string,
     @Query('userId') userId?: string,
+    @Query('locationId') locationId?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    const take = Math.min(Number(limit) || 50, 100);
+    const take = Math.min(Number(limit) || 50, 200);
     const skip = ((Number(page) || 1) - 1) * take;
 
     const where: Record<string, unknown> = {};
     if (entityType) where.entityType = { contains: entityType, mode: 'insensitive' };
+    if (entityId) where.entityId = entityId;
     if (action) where.action = action;
     if (userId) where.userId = userId;
+    if (locationId) where.locationId = locationId;
     if (dateFrom || dateTo) {
       where.createdAt = {
         ...(dateFrom ? { gte: new Date(dateFrom) } : {}),

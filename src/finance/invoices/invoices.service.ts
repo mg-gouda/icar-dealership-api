@@ -152,4 +152,61 @@ export class InvoicesService {
     await this.audit.log({ entity: 'Invoice', entityId: invoiceId, action: 'ADD_LINE', userId, newValue: line });
     return line;
   }
+
+  async threeWayMatch(invoiceId: string) {
+    // Fetch invoice + lines + receipt via receiptId
+    const invoice = await this.prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    const lines = await this.prisma.invoiceLine.findMany({
+      where: { invoiceId },
+      include: { vehicle: { select: { vin: true } } },
+    });
+
+    if (!invoice.receiptId) {
+      return { hasMatch: false, message: 'No receipt linked to this bill', lines: [] };
+    }
+
+    const receipt = await this.prisma.receipt.findUniqueOrThrow({
+      where: { id: invoice.receiptId },
+      include: {
+        lines: {
+          include: {
+            purchaseOrderLine: { include: { purchaseOrder: { select: { id: true } } } },
+            vehicle: { select: { vin: true } },
+          },
+        },
+        purchaseOrder: { select: { id: true } },
+      },
+    });
+
+    const matchLines = receipt.lines.map((rl) => {
+      const poLine = rl.purchaseOrderLine;
+      const billLine = lines.find((il) => il.vehicleId && il.vehicleId === rl.vehicleId);
+      const poQty = Number(poLine.quantity);
+      const receivedQty = Number(rl.quantityReceived);
+      const billQty = billLine ? Number(billLine.quantity) : 0;
+      const poUnitCost = Number(poLine.unitCost);
+      const billUnitPrice = billLine ? Number(billLine.unitPrice) : 0;
+      const qtyVariance = receivedQty - billQty;
+      const priceVariance = billUnitPrice - poUnitCost;
+      return {
+        description: poLine.description,
+        vehicleVin: rl.vehicle?.vin,
+        po: { id: poLine.purchaseOrder.id, qty: poQty, unitCost: poUnitCost },
+        receipt: { qty: receivedQty },
+        bill: { qty: billQty, unitPrice: billUnitPrice },
+        qtyVariance,
+        priceVariance,
+        hasVariance: Math.abs(qtyVariance) > 0.001 || Math.abs(priceVariance) > 0.01,
+      };
+    });
+
+    const hasVariance = matchLines.some((l) => l.hasVariance);
+    return {
+      hasMatch: true,
+      hasVariance,
+      canPost: !hasVariance,
+      purchaseOrderId: receipt.purchaseOrder?.id,
+      lines: matchLines,
+    };
+  }
 }

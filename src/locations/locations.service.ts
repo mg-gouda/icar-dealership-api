@@ -45,8 +45,10 @@ export class LocationsService {
   async update(id: string, data: Partial<{
     name: string; address: string; city: string; phone: string;
     defaultAdminFee: number; defaultInsuranceFee: number;
+    logoUrl: string; displayName: string; businessHours: unknown;
+    timezone: string;
   }>, userId: string) {
-    const loc = await this.prisma.location.update({ where: { id }, data });
+    const loc = await this.prisma.location.update({ where: { id }, data: data as any });
     await this.audit.log({ entity: 'Location', entityId: id, action: 'UPDATE', userId, newValue: data });
     return loc;
   }

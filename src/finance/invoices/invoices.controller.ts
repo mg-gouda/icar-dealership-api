@@ -49,4 +49,11 @@ export class InvoicesController {
   addLine(@Param('id') id: string, @Body() body: any, @Request() req: any) {
     return this.svc.addLine(id, body, req.user.id);
   }
+
+  // ponytail: static route before dynamic
+  @Get(':id/three-way-match')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN', 'MANAGER')
+  threeWayMatch(@Param('id') id: string) {
+    return this.svc.threeWayMatch(id);
+  }
 }
