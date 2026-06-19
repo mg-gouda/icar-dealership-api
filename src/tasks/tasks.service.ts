@@ -102,7 +102,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
 
     const result = await this.prisma.installmentLine.updateMany({
       where: {
-        status: 'PENDING',
+        status: { in: ['PENDING', 'PARTIAL'] },
         dueDate: { lt: today },
       },
       data: { status: 'OVERDUE' },

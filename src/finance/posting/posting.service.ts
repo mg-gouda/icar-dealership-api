@@ -170,6 +170,17 @@ export class PostingService {
         where: { id: installmentLineId },
         data: { status: 'PAID', paidAmount: Number(line.totalDue), paidDate: now },
       });
+
+      // Auto-mark commissions PAYABLE on first installment collected
+      const paidCount = await tx.installmentLine.count({
+        where: { installmentPlanId: line.installmentPlan.id, status: 'PAID' },
+      });
+      if (paidCount === 1) {
+        await tx.dealCommission.updateMany({
+          where: { dealId: line.installmentPlan.dealId, status: 'ACCRUED' },
+          data: { status: 'PAYABLE', payableAt: now },
+        });
+      }
     });
   }
 
@@ -212,14 +223,21 @@ export class PostingService {
       lines.push({ accountId: accounts['2600'], debit: 0, credit: Math.abs(shortfall), label: 'Bank financing overage', analyticAccountId });
     }
 
-    await this.prisma.journalEntry.create({
-      data: {
-        journalId: bankJournal.id,
-        date: now,
-        ref: `BANK-${dealId.slice(-8).toUpperCase()}`,
-        status: 'POSTED',
-        lines: { create: lines },
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.journalEntry.create({
+        data: {
+          journalId: bankJournal.id,
+          date: now,
+          ref: `BANK-${dealId.slice(-8).toUpperCase()}`,
+          status: 'POSTED',
+          lines: { create: lines },
+        },
+      });
+      // Auto-mark commissions PAYABLE on bank disbursement
+      await tx.dealCommission.updateMany({
+        where: { dealId, status: 'ACCRUED' },
+        data: { status: 'PAYABLE', payableAt: now },
+      });
     });
   }
 
@@ -429,18 +447,25 @@ export class PostingService {
 
   // -- Private Helpers --
 
-  private async assertFiscalPeriodOpen(date: Date, companyId: string) {
+  async assertFiscalPeriodOpen(date: Date, companyId: string, userId?: string) {
     const fiscal = await this.prisma.fiscalYear.findFirst({
-      where: {
-        companyId,
-        startDate: { lte: date },
-        endDate: { gte: date },
-      },
+      where: { companyId, startDate: { lte: date }, endDate: { gte: date } },
     });
     if (!fiscal) throw new BadRequestException('No open fiscal year for the posting date.');
     if (fiscal.lockDate && date <= fiscal.lockDate) {
+      if (userId) {
+        const override = await this.prisma.userPermission.findFirst({
+          where: { userId, permissionKey: 'finance:lock-override', granted: true },
+        });
+        if (override) {
+          await this.prisma.auditLog.create({
+            data: { entityType: 'FiscalYear', entityId: fiscal.id, action: 'LOCK_OVERRIDE', userId },
+          });
+          return; // allowed
+        }
+      }
       throw new BadRequestException(
-        'Fiscal period is locked. Finance Admin - Lock Override permission required.',
+        'Fiscal period is locked. Finance Admin — Lock Override permission required.',
       );
     }
   }

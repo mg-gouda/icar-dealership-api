@@ -110,10 +110,15 @@ export class DealsService {
   async finalize(id: string, userId: string) {
     const deal = await this.prisma.deal.findUniqueOrThrow({
       where: { id },
-      include: { vehicle: true, location: true },
+      include: { vehicle: true, location: true, financeApplication: { include: { bankApproval: true } } },
     });
     if (deal.status !== 'DRAFT' && deal.status !== 'PENDING_FINANCE') {
       throw new BadRequestException(`Deal ${id} is not in a finalizable state (status: ${deal.status})`);
+    }
+    if (deal.purchaseMethod === 'BANK_FINANCING') {
+      if ((deal as any).bankFinancingStatus !== 'APPROVED' || !(deal as any).financeApplication?.bankApproval) {
+        throw new BadRequestException('Bank financing deals require an approved bank approval before finalizing.');
+      }
     }
 
     await this.prisma.$transaction(async () => {
