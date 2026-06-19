@@ -30,6 +30,16 @@ export const FIELD_POLICIES: FieldPolicy[] = [
   // ── Deal ──
   { entity: 'Deal', field: 'grossProfit', minRole: 'MANAGER' },
   { entity: 'Deal', field: 'costOfGoods', minRole: 'MANAGER' },
+  { entity: 'Deal', field: 'salePrice', minRole: 'SALES_REP', writeMinRole: 'MANAGER' },
+  { entity: 'Deal', field: 'purchaseMethod', minRole: 'SALES_REP', writeMinRole: 'MANAGER' },
+
+  // ── User (staff-to-staff edits) ──
+  { entity: 'User', field: 'passwordHash', minRole: 'ADMIN' },
+  { entity: 'User', field: 'role', minRole: 'MANAGER', writeMinRole: 'ADMIN' },
+  { entity: 'User', field: 'totpSecret', minRole: 'ADMIN' },
+
+  // ── BankFinancingDocument ──
+  { entity: 'BankFinancingDocument', field: 'fileUrl', minRole: 'FINANCE' },
 
   // ── FinanceApplication ──
   { entity: 'FinanceApplication', field: 'applicantInfo', minRole: 'FINANCE' },

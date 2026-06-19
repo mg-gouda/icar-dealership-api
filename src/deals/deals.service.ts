@@ -107,6 +107,9 @@ export class DealsService {
   }>, userId: string) {
     const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id } });
     if (deal.status === 'FINALIZED') throw new BadRequestException('Cannot edit a finalized deal');
+    if (deal.status !== 'DRAFT' && data.purchaseMethod && data.purchaseMethod !== deal.purchaseMethod) {
+      throw new BadRequestException('Purchase method cannot be changed after deal leaves DRAFT status');
+    }
 
     const updated = await this.prisma.deal.update({ where: { id }, data: data as any });
     await this.audit.log({ entity: 'Deal', entityId: id, action: 'UPDATE', userId, newValue: data });
