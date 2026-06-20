@@ -48,9 +48,9 @@ function setAuthCookies(
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  // ponytail: 5 attempts per minute per IP — brute-force guard on auth endpoints
+  // ponytail: brute-force guard — strict in prod, relaxed for dev/test
   @UseGuards(ThrottlerGuard, AuthGuard('local'))
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: process.env.NODE_ENV === 'production' ? 5 : 500, ttl: 60_000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login — returns tokens or 2FA challenge' })
@@ -62,7 +62,7 @@ export class AuthController {
   }
 
   @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: process.env.NODE_ENV === 'production' ? 10 : 500, ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Body('refreshToken') refreshToken: string) {

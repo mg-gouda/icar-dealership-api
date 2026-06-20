@@ -6,6 +6,7 @@ import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { FieldPolicyInterceptor } from './common/field-policies/field-policy.interceptor';
+import { DecimalInterceptor } from './common/interceptors/decimal.interceptor';
 
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -42,7 +43,11 @@ import { UploadModule } from './upload/upload.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 200 }]),
+    ThrottlerModule.forRoot([{
+      ttl: 60_000,
+      // Raise limit for local dev/test; prod sits behind Nginx rate-limiting
+      limit: process.env.NODE_ENV === 'production' ? 200 : 2000,
+    }]),
     PrismaModule,
     AuditModule,
 
@@ -89,6 +94,7 @@ import { UploadModule } from './upload/upload.module';
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: DecimalInterceptor },
     { provide: APP_INTERCEPTOR, useClass: FieldPolicyInterceptor },
   ],
 })
