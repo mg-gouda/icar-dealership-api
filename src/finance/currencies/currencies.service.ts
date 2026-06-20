@@ -14,7 +14,9 @@ export class CurrenciesService {
   async getBaseCurrency(companyId: string) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { baseCurrency: { select: { id: true, code: true, symbol: true } } },
+      select: {
+        baseCurrency: { select: { id: true, code: true, symbol: true } },
+      },
     });
     return company?.baseCurrency ?? null;
   }
@@ -25,7 +27,13 @@ export class CurrenciesService {
     const activeOnly = query.activeOnly !== 'false';
     return this.prisma.currency.findMany({
       where: activeOnly ? { active: true } : {},
-      select: { id: true, code: true, symbol: true, decimalPlaces: true, active: true },
+      select: {
+        id: true,
+        code: true,
+        symbol: true,
+        decimalPlaces: true,
+        active: true,
+      },
       orderBy: { code: 'asc' },
     });
   }
@@ -33,7 +41,13 @@ export class CurrenciesService {
   async getById(id: string) {
     const currency = await this.prisma.currency.findUnique({
       where: { id },
-      select: { id: true, code: true, symbol: true, decimalPlaces: true, active: true },
+      select: {
+        id: true,
+        code: true,
+        symbol: true,
+        decimalPlaces: true,
+        active: true,
+      },
     });
     if (!currency) throw new NotFoundException('Currency not found');
     return currency;
@@ -48,7 +62,10 @@ export class CurrenciesService {
       data: { active },
     });
     await this.audit.log({
-      userId, action: 'UPDATE', entity: 'Currency', entityId: id,
+      userId,
+      action: 'UPDATE',
+      entity: 'Currency',
+      entityId: id,
       changes: { active: { before: currency.active, after: active } },
     });
     return updated;
@@ -56,9 +73,15 @@ export class CurrenciesService {
 
   // ── Exchange Rates ──
 
-  async listRates(currencyId: string, query: {
-    dateFrom?: string; dateTo?: string; page?: number; limit?: number;
-  }) {
+  async listRates(
+    currencyId: string,
+    query: {
+      dateFrom?: string;
+      dateTo?: string;
+      page?: number;
+      limit?: number;
+    },
+  ) {
     const { dateFrom, dateTo, page = 1, limit = 20 } = query;
     const where: any = { currencyId };
 
@@ -94,9 +117,14 @@ export class CurrenciesService {
     });
   }
 
-  async upsertRate(data: {
-    currencyId: string; date: string; rate: number;
-  }, userId: string) {
+  async upsertRate(
+    data: {
+      currencyId: string;
+      date: string;
+      rate: number;
+    },
+    userId: string,
+  ) {
     const dateObj = new Date(data.date);
 
     const result = await this.prisma.currencyRate.upsert({
@@ -115,7 +143,10 @@ export class CurrenciesService {
     });
 
     await this.audit.log({
-      userId, action: 'UPSERT', entity: 'CurrencyRate', entityId: result.id,
+      userId,
+      action: 'UPSERT',
+      entity: 'CurrencyRate',
+      entityId: result.id,
     });
     return result;
   }
@@ -126,7 +157,10 @@ export class CurrenciesService {
 
     await this.prisma.currencyRate.delete({ where: { id } });
     await this.audit.log({
-      userId, action: 'DELETE', entity: 'CurrencyRate', entityId: id,
+      userId,
+      action: 'DELETE',
+      entity: 'CurrencyRate',
+      entityId: id,
     });
     return { deleted: true };
   }
@@ -146,12 +180,20 @@ export class CurrenciesService {
     if (openLines.length === 0) return { revaluedCount: 0, totalVariance: 0 };
 
     // Resolve 8100 (Unrealized Exchange Gain/Loss)
-    const fxAccount = await this.prisma.account.findFirst({ where: { companyId, code: '8100' } });
-    if (!fxAccount) throw new Error('COA account 8100 (Unrealized Exchange Gain/Loss) not found. Run seed first.');
+    const fxAccount = await this.prisma.account.findFirst({
+      where: { companyId, code: '8100' },
+    });
+    if (!fxAccount)
+      throw new Error(
+        'COA account 8100 (Unrealized Exchange Gain/Loss) not found. Run seed first.',
+      );
 
     // Get a GENERAL journal for the company
-    const generalJournal = await this.prisma.journal.findFirst({ where: { companyId, type: 'GENERAL' } });
-    if (!generalJournal) throw new Error('No GENERAL journal found for company. Run seed first.');
+    const generalJournal = await this.prisma.journal.findFirst({
+      where: { companyId, type: 'GENERAL' },
+    });
+    if (!generalJournal)
+      throw new Error('No GENERAL journal found for company. Run seed first.');
 
     const today = new Date();
     let revaluedCount = 0;
@@ -168,7 +210,8 @@ export class CurrenciesService {
         if (!latestRate) continue;
 
         const fxAmount = Number(line.amountCurrency) * Number(latestRate.rate);
-        const bookValue = Number(line.debit) > 0 ? Number(line.debit) : -Number(line.credit);
+        const bookValue =
+          Number(line.debit) > 0 ? Number(line.debit) : -Number(line.credit);
         const variance = fxAmount - bookValue;
         if (Math.abs(variance) < 0.01) continue;
 
@@ -180,8 +223,18 @@ export class CurrenciesService {
             status: 'POSTED',
             lines: {
               create: [
-                { accountId: line.accountId, debit: variance > 0 ? variance : 0, credit: variance < 0 ? -variance : 0, label: 'FX Revaluation adjustment' },
-                { accountId: fxAccount.id, debit: variance < 0 ? -variance : 0, credit: variance > 0 ? variance : 0, label: 'Unrealized Exchange Gain/Loss' },
+                {
+                  accountId: line.accountId,
+                  debit: variance > 0 ? variance : 0,
+                  credit: variance < 0 ? -variance : 0,
+                  label: 'FX Revaluation adjustment',
+                },
+                {
+                  accountId: fxAccount.id,
+                  debit: variance < 0 ? -variance : 0,
+                  credit: variance > 0 ? variance : 0,
+                  label: 'Unrealized Exchange Gain/Loss',
+                },
               ],
             },
           },
@@ -191,14 +244,26 @@ export class CurrenciesService {
       }
     });
 
-    await this.audit.log({ userId, action: 'REVALUATE', entity: 'Currency', entityId: companyId, changes: { revaluedCount, totalVariance } });
-    return { revaluedCount, totalVariance: Math.round(totalVariance * 100) / 100 };
+    await this.audit.log({
+      userId,
+      action: 'REVALUATE',
+      entity: 'Currency',
+      entityId: companyId,
+      changes: { revaluedCount, totalVariance },
+    });
+    return {
+      revaluedCount,
+      totalVariance: Math.round(totalVariance * 100) / 100,
+    };
   }
 
-  async importRates(data: {
-    currencyId: string;
-    rates: Array<{ date: string; rate: number }>;
-  }, userId: string) {
+  async importRates(
+    data: {
+      currencyId: string;
+      rates: Array<{ date: string; rate: number }>;
+    },
+    userId: string,
+  ) {
     const ops = data.rates.map((r) =>
       this.prisma.currencyRate.upsert({
         where: {
@@ -218,7 +283,9 @@ export class CurrenciesService {
 
     const results = await this.prisma.$transaction(ops);
     await this.audit.log({
-      userId, action: 'IMPORT', entity: 'CurrencyRate',
+      userId,
+      action: 'IMPORT',
+      entity: 'CurrencyRate',
       entityId: data.currencyId,
       changes: { count: results.length },
     });

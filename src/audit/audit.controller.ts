@@ -29,7 +29,8 @@ export class AuditController {
     const skip = ((Number(page) || 1) - 1) * take;
 
     const where: Record<string, unknown> = {};
-    if (entityType) where.entityType = { contains: entityType, mode: 'insensitive' };
+    if (entityType)
+      where.entityType = { contains: entityType, mode: 'insensitive' };
     if (entityId) where.entityId = entityId;
     if (action) where.action = action;
     if (userId) where.userId = userId;
@@ -52,6 +53,6 @@ export class AuditController {
       this.prisma.auditLog.count({ where: where as any }),
     ]);
 
-    return { data, total, page: (skip / take) + 1, limit: take };
+    return { data, total, page: skip / take + 1, limit: take };
   }
 }

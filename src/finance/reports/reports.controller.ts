@@ -1,4 +1,11 @@
-import { Controller, Get, Query, UseGuards, Request, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  Request,
+  BadRequestException,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -15,58 +22,72 @@ export class ReportsController {
   @Get('trial-balance')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   trialBalance(@Request() req: any, @Query() q: any) {
+    const now = Date.now();
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
     return this.svc.trialBalance(
       req.user.companyId,
-      new Date(q.dateFrom),
-      new Date(q.dateTo),
+      new Date(q.dateFrom ?? monthStart),
+      new Date(q.dateTo ?? now),
     );
   }
 
   @Get('income-statement')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   incomeStatement(@Request() req: any, @Query() q: any) {
+    const now = Date.now();
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
     return this.svc.incomeStatement(
       req.user.companyId,
-      new Date(q.dateFrom),
-      new Date(q.dateTo),
+      new Date(q.dateFrom ?? monthStart),
+      new Date(q.dateTo ?? now),
     );
   }
 
   @Get('balance-sheet')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   balanceSheet(@Request() req: any, @Query() q: any) {
-    return this.svc.balanceSheet(req.user.companyId, new Date(q.asOf));
+    return this.svc.balanceSheet(req.user.companyId, new Date(q.asOf ?? Date.now()));
   }
 
   @Get('aged-receivables')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   agedReceivables(@Request() req: any, @Query() q: any) {
-    return this.svc.agedReceivables(req.user.companyId, new Date(q.asOf ?? Date.now()));
+    return this.svc.agedReceivables(
+      req.user.companyId,
+      new Date(q.asOf ?? Date.now()),
+    );
   }
 
   @Get('aged-payables')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   agedPayables(@Request() req: any, @Query() q: any) {
-    return this.svc.agedPayables(req.user.companyId, new Date(q.asOf ?? Date.now()));
+    return this.svc.agedPayables(
+      req.user.companyId,
+      new Date(q.asOf ?? Date.now()),
+    );
   }
 
   @Get('cash-flow')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   cashFlow(@Request() req: any, @Query() q: any) {
+    const now = Date.now();
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
     return this.svc.cashFlow(
       req.user.companyId,
-      new Date(q.dateFrom),
-      new Date(q.dateTo),
+      new Date(q.dateFrom ?? monthStart),
+      new Date(q.dateTo ?? now),
     );
   }
 
   @Get('tax-report')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   taxReport(@Request() req: any, @Query() q: any) {
+    const now = Date.now();
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
     return this.svc.taxReport(
       req.user.companyId,
-      new Date(q.dateFrom),
-      new Date(q.dateTo),
+      new Date(q.dateFrom ?? monthStart),
+      new Date(q.dateTo ?? now),
     );
   }
 
@@ -88,18 +109,28 @@ export class ReportsController {
   @Get('profit-loss')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   incomeStatementAlias(@Request() req: any, @Query() q: any) {
-    return this.svc.incomeStatement(req.user.companyId, new Date(q.from ?? q.dateFrom), new Date(q.to ?? q.dateTo));
+    return this.svc.incomeStatement(
+      req.user.companyId,
+      new Date(q.from ?? q.dateFrom),
+      new Date(q.to ?? q.dateTo),
+    );
   }
 
   @Get('aged-ar')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   agedArAlias(@Request() req: any, @Query() q: any) {
-    return this.svc.agedReceivables(req.user.companyId, new Date(q.asOf ?? Date.now()));
+    return this.svc.agedReceivables(
+      req.user.companyId,
+      new Date(q.asOf ?? Date.now()),
+    );
   }
 
   @Get('aged-ap')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   agedApAlias(@Request() req: any, @Query() q: any) {
-    return this.svc.agedPayables(req.user.companyId, new Date(q.asOf ?? Date.now()));
+    return this.svc.agedPayables(
+      req.user.companyId,
+      new Date(q.asOf ?? Date.now()),
+    );
   }
 }

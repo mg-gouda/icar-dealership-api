@@ -6,16 +6,38 @@ export class AppointmentsService {
   constructor(private prisma: PrismaService) {}
 
   findAll(query: {
-    locationId?: string; type?: string; status?: string;
-    staffId?: string; date?: string; dateFrom?: string; dateTo?: string;
-    page?: number; limit?: number;
+    locationId?: string;
+    type?: string;
+    status?: string;
+    staffId?: string;
+    date?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    limit?: number;
   }) {
-    const { locationId, type, status, staffId, date, dateFrom, dateTo, page = 1, limit = 20 } = query;
+    const {
+      locationId,
+      type,
+      status,
+      staffId,
+      date,
+      dateFrom,
+      dateTo,
+      page = 1,
+      limit = 20,
+    } = query;
     // ponytail: date=single day; dateFrom+dateTo=range (for calendar view)
     const dateFilter = date
-      ? { gte: new Date(date), lt: new Date(new Date(date).setDate(new Date(date).getDate() + 1)) }
-      : (dateFrom || dateTo)
-        ? { ...(dateFrom && { gte: new Date(dateFrom) }), ...(dateTo && { lte: new Date(dateTo) }) }
+      ? {
+          gte: new Date(date),
+          lt: new Date(new Date(date).setDate(new Date(date).getDate() + 1)),
+        }
+      : dateFrom || dateTo
+        ? {
+            ...(dateFrom && { gte: new Date(dateFrom) }),
+            ...(dateTo && { lte: new Date(dateTo) }),
+          }
         : undefined;
     return this.prisma.appointment.findMany({
       where: {
@@ -52,8 +74,12 @@ export class AppointmentsService {
   }
 
   create(data: {
-    locationId: string; customerId: string; vehicleId?: string;
-    assignedToUserId?: string; type: string; scheduledAt: Date | string;
+    locationId: string;
+    customerId: string;
+    vehicleId?: string;
+    assignedToUserId?: string;
+    type: string;
+    scheduledAt: Date | string;
   }) {
     return this.prisma.appointment.create({
       data: {
@@ -68,9 +94,14 @@ export class AppointmentsService {
     });
   }
 
-  update(id: string, data: Partial<{
-    status: string; scheduledAt: Date; assignedToUserId: string;
-  }>) {
+  update(
+    id: string,
+    data: Partial<{
+      status: string;
+      scheduledAt: Date;
+      assignedToUserId: string;
+    }>,
+  ) {
     return this.prisma.appointment.update({ where: { id }, data: data as any });
   }
 

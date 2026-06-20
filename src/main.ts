@@ -48,7 +48,9 @@ async function bootstrap() {
   app.use((req: any, res: any, next: any) => {
     const origin = req.headers['origin'] as string | undefined;
     if (origin === b2cOrigin && req.path.startsWith('/api/v1/finance')) {
-      return res.status(403).json({ message: 'Finance endpoints not accessible from B2C origin' });
+      return res
+        .status(403)
+        .json({ message: 'Finance endpoints not accessible from B2C origin' });
     }
     next();
   });
@@ -66,7 +68,9 @@ async function bootstrap() {
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
       .setTitle('iCar Dealership API')
-      .setDescription('Multi-location car dealership management API — Egypt market')
+      .setDescription(
+        'Multi-location car dealership management API — Egypt market',
+      )
       .setVersion('1.0')
       .addBearerAuth()
       .build();

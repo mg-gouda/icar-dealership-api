@@ -8,7 +8,12 @@ import {
 import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { FIELD_POLICIES, FieldPolicy, roleAtLeast, Role } from './field-policies';
+import {
+  FIELD_POLICIES,
+  FieldPolicy,
+  roleAtLeast,
+  Role,
+} from './field-policies';
 
 export const FIELD_POLICY_ENTITY_KEY = 'field_policy_entity';
 
@@ -21,10 +26,10 @@ export class FieldPolicyInterceptor implements NestInterceptor {
   constructor(private reflector: Reflector) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const entities = this.reflector.getAllAndOverride<string[]>(FIELD_POLICY_ENTITY_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const entities = this.reflector.getAllAndOverride<string[]>(
+      FIELD_POLICY_ENTITY_KEY,
+      [context.getHandler(), context.getClass()],
+    );
     if (!entities?.length) return next.handle();
 
     const request = context.switchToHttp().getRequest();
@@ -34,7 +39,9 @@ export class FieldPolicyInterceptor implements NestInterceptor {
     const policies = FIELD_POLICIES.filter((p) => entities.includes(p.entity));
     if (!policies.length) return next.handle();
 
-    return next.handle().pipe(map((data) => stripFields(data, policies, userRole)));
+    return next
+      .handle()
+      .pipe(map((data) => stripFields(data, policies, userRole)));
   }
 }
 
@@ -46,8 +53,17 @@ function stripFields(data: any, policies: FieldPolicy[], userRole: Role): any {
   }
 
   // Handle paginated { items: [], total: N } shape
-  if (typeof data === 'object' && 'items' in data && Array.isArray(data.items)) {
-    return { ...data, items: data.items.map((item: any) => stripFields(item, policies, userRole)) };
+  if (
+    typeof data === 'object' &&
+    'items' in data &&
+    Array.isArray(data.items)
+  ) {
+    return {
+      ...data,
+      items: data.items.map((item: any) =>
+        stripFields(item, policies, userRole),
+      ),
+    };
   }
 
   if (typeof data === 'object') {

@@ -1,7 +1,7 @@
-import Decimal from "decimal.js";
+import Decimal from 'decimal.js';
 
-import { computeTaxes, type TaxDetail } from "./tax-computation";
-import { computePaymentTermDueDates } from "./payment-term-calculator";
+import { computeTaxes, type TaxDetail } from './tax-computation';
+import { computePaymentTermDueDates } from './payment-term-calculator';
 
 // ── Types ──
 
@@ -81,9 +81,9 @@ export function computeMoveTotals(lines: ComputedLine[]): MoveTotals {
   let amountTax = new Decimal(0);
 
   for (const line of lines) {
-    if (line.displayType === "PRODUCT") {
+    if (line.displayType === 'PRODUCT') {
       amountUntaxed = amountUntaxed.plus(line.credit.minus(line.debit).abs());
-    } else if (line.displayType === "TAX") {
+    } else if (line.displayType === 'TAX') {
       amountTax = amountTax.plus(line.credit.minus(line.debit).abs());
     }
   }
@@ -108,7 +108,7 @@ export function validateBalance(lines: ComputedLine[]): void {
   }
 
   const diff = totalDebit.minus(totalCredit).abs();
-  if (diff.greaterThan(new Decimal("0.01"))) {
+  if (diff.greaterThan(new Decimal('0.01'))) {
     throw new Error(
       `Journal entry is unbalanced: debit=${totalDebit.toFixed(4)}, credit=${totalCredit.toFixed(4)}, difference=${diff.toFixed(4)}`,
     );
@@ -130,19 +130,22 @@ export function computeInvoiceLines(
   invoiceDate: Date,
   partnerId?: string | null,
 ): ComputedLine[] {
-  const isOutbound = moveType === "OUT_INVOICE" || moveType === "OUT_REFUND";
-  const isRefund = moveType === "OUT_REFUND" || moveType === "IN_REFUND";
-  const docType = isRefund ? "REFUND" : "INVOICE";
+  const isOutbound = moveType === 'OUT_INVOICE' || moveType === 'OUT_REFUND';
+  const isRefund = moveType === 'OUT_REFUND' || moveType === 'IN_REFUND';
+  const docType = isRefund ? 'REFUND' : 'INVOICE';
 
   const result: ComputedLine[] = [];
   let seq = 10;
 
   let totalUntaxed = new Decimal(0);
-  const taxAccumulator: Map<string, { taxDetail: TaxDetail; tax: TaxWithRepartition }> = new Map();
+  const taxAccumulator: Map<
+    string,
+    { taxDetail: TaxDetail; tax: TaxWithRepartition }
+  > = new Map();
 
   // 1. Process product lines
   for (const line of productLines) {
-    if (line.displayType !== "PRODUCT") {
+    if (line.displayType !== 'PRODUCT') {
       // Pass through section/note lines as-is
       result.push({
         accountId: line.accountId,
@@ -187,7 +190,7 @@ export function computeInvoiceLines(
       accountId: line.accountId,
       partnerId: line.partnerId ?? partnerId,
       name: line.name,
-      displayType: "PRODUCT",
+      displayType: 'PRODUCT',
       debit: debit.toDecimalPlaces(4),
       credit: credit.toDecimalPlaces(4),
       balance: debit.minus(credit).toDecimalPlaces(4),
@@ -206,7 +209,11 @@ export function computeInvoiceLines(
     if (line.taxIds.length > 0) {
       const lineTaxes = taxes.filter((t) => line.taxIds.includes(t.id));
       if (lineTaxes.length > 0) {
-        const taxResult = computeTaxes(discountedPrice, lineTaxes, line.quantity);
+        const taxResult = computeTaxes(
+          discountedPrice,
+          lineTaxes,
+          line.quantity,
+        );
         for (const td of taxResult.taxes) {
           const existing = taxAccumulator.get(td.taxId);
           if (existing) {
@@ -218,7 +225,10 @@ export function computeInvoiceLines(
           } else {
             const fullTax = taxes.find((t) => t.id === td.taxId);
             if (fullTax) {
-              taxAccumulator.set(td.taxId, { taxDetail: { ...td }, tax: fullTax });
+              taxAccumulator.set(td.taxId, {
+                taxDetail: { ...td },
+                tax: fullTax,
+              });
             }
           }
         }
@@ -229,7 +239,9 @@ export function computeInvoiceLines(
   // 2. Generate tax lines
   let totalTax = new Decimal(0);
   for (const [taxId, { taxDetail, tax }] of taxAccumulator) {
-    const repartLine = tax.repartitionLines.find((r) => r.documentType === docType);
+    const repartLine = tax.repartitionLines.find(
+      (r) => r.documentType === docType,
+    );
     const taxAccountId = repartLine?.accountId;
     if (!taxAccountId) continue;
 
@@ -251,7 +263,7 @@ export function computeInvoiceLines(
       accountId: taxAccountId,
       partnerId,
       name: taxDetail.taxName,
-      displayType: "TAX",
+      displayType: 'TAX',
       debit: debit.toDecimalPlaces(4),
       credit: credit.toDecimalPlaces(4),
       balance: debit.minus(credit).toDecimalPlaces(4),
@@ -270,7 +282,11 @@ export function computeInvoiceLines(
   const totalAmount = totalUntaxed.plus(totalTax);
 
   if (paymentTermLines && paymentTermLines.length > 0) {
-    const installments = computePaymentTermDueDates(totalAmount, invoiceDate, paymentTermLines);
+    const installments = computePaymentTermDueDates(
+      totalAmount,
+      invoiceDate,
+      paymentTermLines,
+    );
 
     for (const inst of installments) {
       let debit: Decimal;
@@ -290,7 +306,7 @@ export function computeInvoiceLines(
         accountId: receivableAccountId,
         partnerId,
         name: inst.label,
-        displayType: "PAYMENT_TERM",
+        displayType: 'PAYMENT_TERM',
         debit: debit.toDecimalPlaces(4),
         credit: credit.toDecimalPlaces(4),
         balance: debit.minus(credit).toDecimalPlaces(4),
@@ -321,7 +337,7 @@ export function computeInvoiceLines(
       accountId: receivableAccountId,
       partnerId,
       name: null,
-      displayType: "PAYMENT_TERM",
+      displayType: 'PAYMENT_TERM',
       debit: debit.toDecimalPlaces(4),
       credit: credit.toDecimalPlaces(4),
       balance: debit.minus(credit).toDecimalPlaces(4),
@@ -353,7 +369,10 @@ export function applyFxToLines(
     ...line,
     debit: line.debit.times(rate).toDecimalPlaces(4),
     credit: line.credit.times(rate).toDecimalPlaces(4),
-    balance: line.debit.times(rate).minus(line.credit.times(rate)).toDecimalPlaces(4),
+    balance: line.debit
+      .times(rate)
+      .minus(line.credit.times(rate))
+      .toDecimalPlaces(4),
     // amountCurrency stays in foreign currency — intentionally not scaled
   }));
 }

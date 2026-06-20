@@ -541,6 +541,8 @@ model Deal {
 
   @@index([locationId, status])
   @@index([salesRepId])
+  @@index([customerId])
+  @@index([vehicleId])
 }
 
 model FinanceApplication {

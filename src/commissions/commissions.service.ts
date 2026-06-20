@@ -10,8 +10,11 @@ export class CommissionsService {
   ) {}
 
   async list(filters: {
-    status?: string; userId?: string; dealId?: string;
-    page: number; limit: number;
+    status?: string;
+    userId?: string;
+    dealId?: string;
+    page: number;
+    limit: number;
   }) {
     const where: any = {};
     if (filters.status) where.status = filters.status;
@@ -28,7 +31,9 @@ export class CommissionsService {
           user: { select: { id: true, name: true, email: true } },
           deal: {
             select: {
-              id: true, status: true, salePrice: true,
+              id: true,
+              status: true,
+              salePrice: true,
               vehicle: { select: { make: true, model: true, year: true } },
               location: { select: { name: true } },
             },
@@ -62,7 +67,8 @@ export class CommissionsService {
     if (opts.dateFrom || opts.dateTo) {
       where.accruedAt = {};
       if (opts.dateFrom) where.accruedAt.gte = new Date(opts.dateFrom);
-      if (opts.dateTo) where.accruedAt.lte = new Date(opts.dateTo + 'T23:59:59Z');
+      if (opts.dateTo)
+        where.accruedAt.lte = new Date(opts.dateTo + 'T23:59:59Z');
     }
     const rows = await this.prisma.dealCommission.groupBy({
       by: ['userId', 'status'],
@@ -82,7 +88,16 @@ export class CommissionsService {
     // Pivot to per-user summary
     const byUser: Record<string, any> = {};
     for (const r of rows) {
-      if (!byUser[r.userId]) byUser[r.userId] = { user: userMap[r.userId] ?? { id: r.userId, name: r.userId }, ACCRUED: 0, PAYABLE: 0, PAID: 0, CANCELLED: 0, total: 0, count: 0 };
+      if (!byUser[r.userId])
+        byUser[r.userId] = {
+          user: userMap[r.userId] ?? { id: r.userId, name: r.userId },
+          ACCRUED: 0,
+          PAYABLE: 0,
+          PAID: 0,
+          CANCELLED: 0,
+          total: 0,
+          count: 0,
+        };
       byUser[r.userId][r.status] = Number(r._sum.calculatedAmount ?? 0);
       byUser[r.userId].total += Number(r._sum.calculatedAmount ?? 0);
       byUser[r.userId].count += r._count.id;
@@ -98,7 +113,9 @@ export class CommissionsService {
         user: { select: { id: true, name: true, email: true, role: true } },
         deal: {
           include: {
-            vehicle: { select: { make: true, model: true, year: true, vin: true } },
+            vehicle: {
+              select: { make: true, model: true, year: true, vin: true },
+            },
             location: { select: { name: true } },
             customer: { select: { name: true } },
           },
@@ -111,8 +128,13 @@ export class CommissionsService {
   }
 
   async markPayable(id: string) {
-    const c = await this.prisma.dealCommission.findUniqueOrThrow({ where: { id } });
-    if (c.status !== 'ACCRUED') throw new BadRequestException('Only ACCRUED commissions can be marked payable');
+    const c = await this.prisma.dealCommission.findUniqueOrThrow({
+      where: { id },
+    });
+    if (c.status !== 'ACCRUED')
+      throw new BadRequestException(
+        'Only ACCRUED commissions can be marked payable',
+      );
     return this.prisma.dealCommission.update({
       where: { id },
       data: { status: 'PAYABLE', payableAt: new Date() },
@@ -120,14 +142,17 @@ export class CommissionsService {
   }
 
   async batchPay(commissionIds: string[], journalId: string, userId: string) {
-    if (!commissionIds?.length) throw new BadRequestException('No commission IDs provided');
+    if (!commissionIds?.length)
+      throw new BadRequestException('No commission IDs provided');
 
     const commissions = await this.prisma.dealCommission.findMany({
       where: { id: { in: commissionIds }, status: 'PAYABLE' },
     });
 
     if (commissions.length === 0)
-      throw new BadRequestException('No PAYABLE commissions found in selection');
+      throw new BadRequestException(
+        'No PAYABLE commissions found in selection',
+      );
 
     await this.posting.payCommission(commissionIds, journalId, userId);
     const updated = await this.prisma.dealCommission.findMany({

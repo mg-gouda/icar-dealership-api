@@ -1,4 +1,14 @@
-import { Controller, Post, Get, Body, UseGuards, Request, Res, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  UseGuards,
+  Request,
+  Res,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -14,10 +24,22 @@ const COOKIE_OPTS = {
   sameSite: 'strict' as const,
 };
 
-function setAuthCookies(res: Response, accessToken: string, refreshToken?: string) {
-  res.cookie('admin_token', accessToken, { ...COOKIE_OPTS, maxAge: 8 * 3600 * 1000, path: '/' });
+function setAuthCookies(
+  res: Response,
+  accessToken: string,
+  refreshToken?: string,
+) {
+  res.cookie('admin_token', accessToken, {
+    ...COOKIE_OPTS,
+    maxAge: 8 * 3600 * 1000,
+    path: '/',
+  });
   if (refreshToken) {
-    res.cookie('admin_refresh', refreshToken, { ...COOKIE_OPTS, maxAge: 7 * 24 * 3600 * 1000, path: '/api/v1/auth/refresh' });
+    res.cookie('admin_refresh', refreshToken, {
+      ...COOKIE_OPTS,
+      maxAge: 7 * 24 * 3600 * 1000,
+      path: '/api/v1/auth/refresh',
+    });
   }
 }
 
@@ -62,7 +84,9 @@ export class AuthController {
       entity: p.entity,
       field: p.field,
       canRead: roleAtLeast(role, p.minRole),
-      canWrite: p.writeMinRole ? roleAtLeast(role, p.writeMinRole) : roleAtLeast(role, p.minRole),
+      canWrite: p.writeMinRole
+        ? roleAtLeast(role, p.writeMinRole)
+        : roleAtLeast(role, p.minRole),
     }));
   }
 
@@ -82,9 +106,18 @@ export class AuthController {
   @Post('2fa/confirm')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Confirm TOTP enrollment with first valid code' })
-  async confirm2fa(@Request() req: any, @Body('token') token: string, @Res({ passthrough: true }) res: Response) {
+  async confirm2fa(
+    @Request() req: any,
+    @Body('token') token: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const result = await this.authService.confirmTotp(req.user.id, token);
-    if ((result as any).accessToken) setAuthCookies(res, (result as any).accessToken, (result as any).refreshToken);
+    if ((result as any).accessToken)
+      setAuthCookies(
+        res,
+        (result as any).accessToken,
+        (result as any).refreshToken,
+      );
     return result;
   }
 
@@ -93,9 +126,17 @@ export class AuthController {
   @Post('2fa/verify')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify TOTP code during login flow' })
-  async verify2fa(@Request() req: any, @Body('token') token: string, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.verifyTotp(req.user.id, token) as any;
-    if (result.accessToken) setAuthCookies(res, result.accessToken, result.refreshToken);
+  async verify2fa(
+    @Request() req: any,
+    @Body('token') token: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = (await this.authService.verifyTotp(
+      req.user.id,
+      token,
+    )) as any;
+    if (result.accessToken)
+      setAuthCookies(res, result.accessToken, result.refreshToken);
     return result;
   }
 
@@ -148,6 +189,10 @@ export class AuthController {
   async customerRegister(
     @Body() body: { name: string; email: string; password: string },
   ) {
-    return this.authService.customerRegister(body.name, body.email, body.password);
+    return this.authService.customerRegister(
+      body.name,
+      body.email,
+      body.password,
+    );
   }
 }

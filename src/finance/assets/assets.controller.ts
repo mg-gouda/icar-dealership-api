@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -14,15 +24,21 @@ export class AssetsController {
 
   @Get()
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  list(@Query() q: any) { return this.svc.list(q); }
+  list(@Query() q: any) {
+    return this.svc.list(q);
+  }
 
   @Get(':id')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  getById(@Param('id') id: string) { return this.svc.getById(id); }
+  getById(@Param('id') id: string) {
+    return this.svc.getById(id);
+  }
 
   @Post()
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: any) { return this.svc.create(body); }
+  create(@Body() body: any) {
+    return this.svc.create(body);
+  }
 
   @Post(':id/depreciation-lines/:lineId/post')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
@@ -43,8 +59,15 @@ export class AssetsController {
   // ponytail: prefill asset from a vendor bill line (fixed-asset account posting trigger)
   @Post('from-invoice-line')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  createFromInvoiceLine(@Body() body: { invoiceLineId: string; [k: string]: unknown }, @Request() req: any) {
-    return this.svc.createFromInvoiceLine(body.invoiceLineId, body, req.user.id);
+  createFromInvoiceLine(
+    @Body() body: { invoiceLineId: string; [k: string]: unknown },
+    @Request() req: any,
+  ) {
+    return this.svc.createFromInvoiceLine(
+      body.invoiceLineId,
+      body,
+      req.user.id,
+    );
   }
 
   // UI alias: POST /:id/depreciate { month: 'YYYY-MM', journalId? }
@@ -55,7 +78,12 @@ export class AssetsController {
     @Body() body: { month: string; journalId?: string },
     @Request() req: any,
   ) {
-    return this.svc.depreciateByMonth(id, body.month, body.journalId, req.user.id);
+    return this.svc.depreciateByMonth(
+      id,
+      body.month,
+      body.journalId,
+      req.user.id,
+    );
   }
 
   @Post(':id/dispose')

@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { VehiclesService } from './vehicles.service';
@@ -6,7 +17,10 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { LocationScope } from '../common/decorators/location-scope.decorator';
-import { FieldPolicyEntity, assertFieldWriteAccess } from '../common/field-policies';
+import {
+  FieldPolicyEntity,
+  assertFieldWriteAccess,
+} from '../common/field-policies';
 
 @ApiTags('vehicles')
 @ApiBearerAuth()
@@ -29,7 +43,16 @@ export class VehiclesController {
     @Query('minPrice') minPrice?: number,
     @Query('maxPrice') maxPrice?: number,
   ) {
-    return this.vehiclesService.findAll({ page: +page, limit: +limit, locationId, status, make, bodyType, minPrice, maxPrice });
+    return this.vehiclesService.findAll({
+      page: +page,
+      limit: +limit,
+      locationId,
+      status,
+      make,
+      bodyType,
+      minPrice,
+      maxPrice,
+    });
   }
 
   @Get(':id')
@@ -55,13 +78,20 @@ export class VehiclesController {
 
   @Post(':id/images')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  addImage(@Param('id') id: string, @Body() body: { url: string; order?: number }) {
+  addImage(
+    @Param('id') id: string,
+    @Body() body: { url: string; order?: number },
+  ) {
     return this.vehiclesService.addImage(id, body);
   }
 
   @Patch(':id/images/:imageId')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  updateImage(@Param('id') id: string, @Param('imageId') imageId: string, @Body() body: { order?: number }) {
+  updateImage(
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Body() body: { order?: number },
+  ) {
     return this.vehiclesService.updateImage(id, imageId, body);
   }
 
@@ -81,6 +111,10 @@ export class VehiclesController {
   @Post(':id/decode-vin')
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
   decodeVin(@Param('id') id: string, @Body('vin') vin: string) {
-    return { vin: vin ?? null, decoded: null, message: 'VIN decoder API key not yet configured' };
+    return {
+      vin: vin ?? null,
+      decoded: null,
+      message: 'VIN decoder API key not yet configured',
+    };
   }
 }

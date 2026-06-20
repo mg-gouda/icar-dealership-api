@@ -1,5 +1,14 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { JournalsService } from './journals.service';
@@ -29,7 +38,10 @@ export class JournalsController {
   @Post()
   @Roles('ADMIN', 'SUPER_ADMIN')
   create(@Body() body: any, @Request() req: any) {
-    return this.svc.create({ ...body, companyId: req.user.companyId }, req.user.id);
+    return this.svc.create(
+      { ...body, companyId: req.user.companyId },
+      req.user.id,
+    );
   }
 
   @Patch(':id')

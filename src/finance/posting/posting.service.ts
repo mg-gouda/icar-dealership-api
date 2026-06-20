@@ -32,9 +32,13 @@ export class PostingService {
 
     // Vehicle has no companyId → get from location.company via journal
     const saleJournal = deal.location.journals.find((j) => j.type === 'SALE');
-    const generalJournal = deal.location.journals.find((j) => j.type === 'GENERAL');
+    const generalJournal = deal.location.journals.find(
+      (j) => j.type === 'GENERAL',
+    );
     if (!saleJournal || !generalJournal) {
-      throw new BadRequestException('Location is missing SALE or GENERAL journal. Run seed first.');
+      throw new BadRequestException(
+        'Location is missing SALE or GENERAL journal. Run seed first.',
+      );
     }
 
     const companyId = saleJournal.companyId;
@@ -42,7 +46,14 @@ export class PostingService {
     await this.assertFiscalPeriodOpen(now, companyId);
 
     const accounts = await this.resolveAccounts(companyId, [
-      '1300', '4100', '4210', '4220', '2200', '5100', '1400', '1410',
+      '1300',
+      '4100',
+      '4210',
+      '4220',
+      '2200',
+      '5100',
+      '1400',
+      '1410',
     ]);
 
     const salePrice = Number(deal.salePrice);
@@ -60,11 +71,53 @@ export class PostingService {
       // 1. Invoice GL entry (SALE journal)
       // DR: AR 1300 / CR: Vehicle Sales Income 4100 + VAT Payable 2200 + Admin Fee 4210 + Insurance 4220
       const saleLines = [
-        { accountId: accounts['1300'], debit: totalAR, credit: 0, label: `AR - Deal ${dealId}`, analyticAccountId },
-        { accountId: accounts['4100'], debit: 0, credit: salePrice, label: 'Vehicle Sales Income', analyticAccountId },
-        ...(vatAmount > 0 ? [{ accountId: accounts['2200'], debit: 0, credit: vatAmount, label: 'VAT 14%', analyticAccountId }] : []),
-        ...(adminFee > 0 ? [{ accountId: accounts['4210'], debit: 0, credit: adminFee, label: 'Admin Fee', analyticAccountId }] : []),
-        ...(insuranceFee > 0 ? [{ accountId: accounts['4220'], debit: 0, credit: insuranceFee, label: 'Compulsory Insurance', analyticAccountId }] : []),
+        {
+          accountId: accounts['1300'],
+          debit: totalAR,
+          credit: 0,
+          label: `AR - Deal ${dealId}`,
+          analyticAccountId,
+        },
+        {
+          accountId: accounts['4100'],
+          debit: 0,
+          credit: salePrice,
+          label: 'Vehicle Sales Income',
+          analyticAccountId,
+        },
+        ...(vatAmount > 0
+          ? [
+              {
+                accountId: accounts['2200'],
+                debit: 0,
+                credit: vatAmount,
+                label: 'VAT 14%',
+                analyticAccountId,
+              },
+            ]
+          : []),
+        ...(adminFee > 0
+          ? [
+              {
+                accountId: accounts['4210'],
+                debit: 0,
+                credit: adminFee,
+                label: 'Admin Fee',
+                analyticAccountId,
+              },
+            ]
+          : []),
+        ...(insuranceFee > 0
+          ? [
+              {
+                accountId: accounts['4220'],
+                debit: 0,
+                credit: insuranceFee,
+                label: 'Compulsory Insurance',
+                analyticAccountId,
+              },
+            ]
+          : []),
       ];
 
       await tx.journalEntry.create({
@@ -91,8 +144,20 @@ export class PostingService {
             status: 'POSTED',
             lines: {
               create: [
-                { accountId: accounts['5100'], debit: vehicleCost, credit: 0, label: 'COGS - Vehicle', analyticAccountId },
-                { accountId: accounts['1400'], debit: 0, credit: vehicleCost, label: 'Vehicle Inventory', analyticAccountId },
+                {
+                  accountId: accounts['5100'],
+                  debit: vehicleCost,
+                  credit: 0,
+                  label: 'COGS - Vehicle',
+                  analyticAccountId,
+                },
+                {
+                  accountId: accounts['1400'],
+                  debit: 0,
+                  credit: vehicleCost,
+                  label: 'Vehicle Inventory',
+                  analyticAccountId,
+                },
               ],
             },
           },
@@ -178,11 +243,19 @@ export class PostingService {
       });
 
       // 4. Update vehicle status -> SOLD
-      await tx.vehicle.update({ where: { id: deal.vehicleId }, data: { status: 'SOLD' } });
+      await tx.vehicle.update({
+        where: { id: deal.vehicleId },
+        data: { status: 'SOLD' },
+      });
 
       // 4a. Auto-create trade-in Vehicle if text fields present but no FK yet
       // ponytail: only when tradeInVehicleId is NULL -- avoids double-post with 4b below
-      if (!deal.tradeInVehicleId && deal.tradeInMake && deal.tradeInModel && Number(deal.tradeInValue ?? 0) > 0) {
+      if (
+        !deal.tradeInVehicleId &&
+        deal.tradeInMake &&
+        deal.tradeInModel &&
+        Number(deal.tradeInValue ?? 0) > 0
+      ) {
         const tradeInVin = `TRADE-${dealId.slice(-12).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
         const tradeInVehicle = await tx.vehicle.create({
           data: {
@@ -215,14 +288,29 @@ export class PostingService {
             status: 'POSTED',
             lines: {
               create: [
-                { accountId: accounts['1410'], debit: tradeInValue, credit: 0, label: 'Trade-In Vehicle Inventory', analyticAccountId },
-                { accountId: accounts['1300'], debit: 0, credit: tradeInValue, label: 'Trade-In Credit - AR Reduction', analyticAccountId },
+                {
+                  accountId: accounts['1410'],
+                  debit: tradeInValue,
+                  credit: 0,
+                  label: 'Trade-In Vehicle Inventory',
+                  analyticAccountId,
+                },
+                {
+                  accountId: accounts['1300'],
+                  debit: 0,
+                  credit: tradeInValue,
+                  label: 'Trade-In Credit - AR Reduction',
+                  analyticAccountId,
+                },
               ],
             },
           },
         });
         // Mark trade-in vehicle as AVAILABLE (now part of dealership inventory)
-        await tx.vehicle.update({ where: { id: deal.tradeInVehicleId }, data: { status: 'AVAILABLE' } });
+        await tx.vehicle.update({
+          where: { id: deal.tradeInVehicleId },
+          data: { status: 'AVAILABLE' },
+        });
       }
 
       // 5. Update deal status -> FINALIZED
@@ -234,14 +322,25 @@ export class PostingService {
       // 6. Accrue commissions (per commission records already on deal)
       for (const commission of deal.commissions) {
         if (commission.status !== 'ACCRUED') continue;
-        await this.accrueCommission(commission.id, userId, tx as any, companyId, generalJournal.id, accounts, analyticAccountId);
+        await this.accrueCommission(
+          commission.id,
+          userId,
+          tx as any,
+          companyId,
+          generalJournal.id,
+          accounts,
+          analyticAccountId,
+        );
       }
     });
   }
 
   // -- Installment Payment --
 
-  async postInstallment(installmentLineId: string, userId: string): Promise<void> {
+  async postInstallment(
+    installmentLineId: string,
+    userId: string,
+  ): Promise<void> {
     const line = await this.prisma.installmentLine.findUniqueOrThrow({
       where: { id: installmentLineId },
       include: {
@@ -249,7 +348,9 @@ export class PostingService {
           include: {
             deal: {
               include: {
-                location: { include: { journals: true, analyticAccount: true } },
+                location: {
+                  include: { journals: true, analyticAccount: true },
+                },
               },
             },
           },
@@ -258,15 +359,22 @@ export class PostingService {
     });
 
     const deal = line.installmentPlan.deal;
-    const cashJournal = deal.location.journals.find((j) => j.type === 'CASH' || j.type === 'BANK');
-    if (!cashJournal) throw new BadRequestException('No CASH/BANK journal on location');
+    const cashJournal = deal.location.journals.find(
+      (j) => j.type === 'CASH' || j.type === 'BANK',
+    );
+    if (!cashJournal)
+      throw new BadRequestException('No CASH/BANK journal on location');
 
     const companyId = cashJournal.companyId;
     const now = new Date();
     await this.assertFiscalPeriodOpen(now, companyId);
 
     // DR Bank/Cash (1100), CR AR (1300) principal, CR Interest Income (4300) interest
-    const accounts = await this.resolveAccounts(companyId, ['1100', '1300', '4300']);
+    const accounts = await this.resolveAccounts(companyId, [
+      '1100',
+      '1300',
+      '4300',
+    ]);
     const analyticAccountId = deal.location.analyticAccount?.id;
 
     const principal = Number(line.principalPortion);
@@ -282,9 +390,31 @@ export class PostingService {
           status: 'POSTED',
           lines: {
             create: [
-              { accountId: accounts['1100'], debit: totalDue, credit: 0, label: 'Installment Received', analyticAccountId },
-              { accountId: accounts['1300'], debit: 0, credit: principal, label: 'Clear AR — Principal', analyticAccountId },
-              ...(interest > 0 ? [{ accountId: accounts['4300'], debit: 0, credit: interest, label: 'Interest Income', analyticAccountId }] : []),
+              {
+                accountId: accounts['1100'],
+                debit: totalDue,
+                credit: 0,
+                label: 'Installment Received',
+                analyticAccountId,
+              },
+              {
+                accountId: accounts['1300'],
+                debit: 0,
+                credit: principal,
+                label: 'Clear AR — Principal',
+                analyticAccountId,
+              },
+              ...(interest > 0
+                ? [
+                    {
+                      accountId: accounts['4300'],
+                      debit: 0,
+                      credit: interest,
+                      label: 'Interest Income',
+                      analyticAccountId,
+                    },
+                  ]
+                : []),
             ],
           },
         },
@@ -292,7 +422,11 @@ export class PostingService {
 
       await tx.installmentLine.update({
         where: { id: installmentLineId },
-        data: { status: 'PAID', paidAmount: Number(line.totalDue), paidDate: now },
+        data: {
+          status: 'PAID',
+          paidAmount: Number(line.totalDue),
+          paidDate: now,
+        },
       });
 
       // Auto-mark commissions PAYABLE on first installment collected
@@ -320,31 +454,70 @@ export class PostingService {
     });
 
     const bankApproval = deal.financeApplication?.bankApproval;
-    if (!bankApproval) throw new BadRequestException('No bank approval record on deal');
+    if (!bankApproval)
+      throw new BadRequestException('No bank approval record on deal');
 
     const bankJournal = deal.location.journals.find((j) => j.type === 'BANK');
-    if (!bankJournal) throw new BadRequestException('No BANK journal on location');
+    if (!bankJournal)
+      throw new BadRequestException('No BANK journal on location');
 
     const companyId = bankJournal.companyId;
     const now = new Date();
     await this.assertFiscalPeriodOpen(now, companyId);
 
-    const accounts = await this.resolveAccounts(companyId, ['1200', '1300', '2600']);
+    const accounts = await this.resolveAccounts(companyId, [
+      '1200',
+      '1300',
+      '2600',
+    ]);
     const analyticAccountId = deal.location.analyticAccount?.id;
 
     const approvedAmount = Number(bankApproval.approvedAmount);
-    const saleTotal = Number(deal.salePrice) * (1 + VAT_RATE) + Number(deal.adminFee ?? 0) + Number(deal.insuranceFee ?? 0);
+    const saleTotal =
+      Number(deal.salePrice) * (1 + VAT_RATE) +
+      Number(deal.adminFee ?? 0) +
+      Number(deal.insuranceFee ?? 0);
     const shortfall = saleTotal - approvedAmount;
 
     // DR: Bank 1200 (approved amount) + DR: Bank Financing Liability 2600 (shortfall if any) / CR: AR 1300
-    const lines: Array<{ accountId: string; debit: number; credit: number; label: string; analyticAccountId?: string }> = [
-      { accountId: accounts['1200'], debit: approvedAmount, credit: 0, label: 'Bank disbursement received', analyticAccountId },
-      { accountId: accounts['1300'], debit: 0, credit: saleTotal, label: 'Clear AR', analyticAccountId },
+    const lines: Array<{
+      accountId: string;
+      debit: number;
+      credit: number;
+      label: string;
+      analyticAccountId?: string;
+    }> = [
+      {
+        accountId: accounts['1200'],
+        debit: approvedAmount,
+        credit: 0,
+        label: 'Bank disbursement received',
+        analyticAccountId,
+      },
+      {
+        accountId: accounts['1300'],
+        debit: 0,
+        credit: saleTotal,
+        label: 'Clear AR',
+        analyticAccountId,
+      },
     ];
     if (shortfall > 0) {
-      lines.push({ accountId: accounts['2600'], debit: shortfall, credit: 0, label: 'Bank financing shortfall', analyticAccountId });
+      lines.push({
+        accountId: accounts['2600'],
+        debit: shortfall,
+        credit: 0,
+        label: 'Bank financing shortfall',
+        analyticAccountId,
+      });
     } else if (shortfall < 0) {
-      lines.push({ accountId: accounts['2600'], debit: 0, credit: Math.abs(shortfall), label: 'Bank financing overage', analyticAccountId });
+      lines.push({
+        accountId: accounts['2600'],
+        debit: 0,
+        credit: Math.abs(shortfall),
+        label: 'Bank financing overage',
+        analyticAccountId,
+      });
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -390,15 +563,20 @@ export class PostingService {
           },
         },
       });
-      const generalJournal = commission.deal.location.journals.find((j) => j.type === 'GENERAL');
-      if (!generalJournal) throw new BadRequestException('No GENERAL journal on location');
+      const generalJournal = commission.deal.location.journals.find(
+        (j) => j.type === 'GENERAL',
+      );
+      if (!generalJournal)
+        throw new BadRequestException('No GENERAL journal on location');
       companyId = generalJournal.companyId;
       journalId = generalJournal.id;
-      accounts = await this.resolveAccounts(companyId!, ['6100', '2400']);
+      accounts = await this.resolveAccounts(companyId, ['6100', '2400']);
       analyticAccountId = commission.deal.location.analyticAccount?.id;
     }
 
-    const commission = await this.prisma.dealCommission.findUniqueOrThrow({ where: { id: dealCommissionId } });
+    const commission = await this.prisma.dealCommission.findUniqueOrThrow({
+      where: { id: dealCommissionId },
+    });
     const amount = Number(commission.calculatedAmount);
 
     const entry = await db.journalEntry.create({
@@ -409,8 +587,20 @@ export class PostingService {
         status: 'POSTED',
         lines: {
           create: [
-            { accountId: accounts!['6100'], debit: amount, credit: 0, label: 'Sales Commission Expense', analyticAccountId },
-            { accountId: accounts!['2400'], debit: 0, credit: amount, label: 'Commissions Payable', analyticAccountId },
+            {
+              accountId: accounts['6100'],
+              debit: amount,
+              credit: 0,
+              label: 'Sales Commission Expense',
+              analyticAccountId,
+            },
+            {
+              accountId: accounts['2400'],
+              debit: 0,
+              credit: amount,
+              label: 'Commissions Payable',
+              analyticAccountId,
+            },
           ],
         },
       },
@@ -424,8 +614,13 @@ export class PostingService {
 
   // -- Commission Payout --
 
-  async payCommission(commissionIds: string[], journalId: string, userId: string): Promise<void> {
-    if (!commissionIds.length) throw new BadRequestException('No commission IDs provided');
+  async payCommission(
+    commissionIds: string[],
+    journalId: string,
+    userId: string,
+  ): Promise<void> {
+    if (!commissionIds.length)
+      throw new BadRequestException('No commission IDs provided');
 
     const journal = await this.prisma.journal.findUniqueOrThrow({
       where: { id: journalId },
@@ -438,10 +633,14 @@ export class PostingService {
     const commissions = await this.prisma.dealCommission.findMany({
       where: { id: { in: commissionIds }, status: 'PAYABLE' },
     });
-    if (!commissions.length) throw new BadRequestException('No PAYABLE commissions found');
+    if (!commissions.length)
+      throw new BadRequestException('No PAYABLE commissions found');
 
     const accounts = await this.resolveAccounts(companyId, ['2400', '1200']);
-    const totalPayout = commissions.reduce((s, c) => s + Number(c.calculatedAmount), 0);
+    const totalPayout = commissions.reduce(
+      (s, c) => s + Number(c.calculatedAmount),
+      0,
+    );
     const analyticAccountId = journal.location?.analyticAccount?.id;
 
     await this.prisma.$transaction(async (tx) => {
@@ -453,8 +652,20 @@ export class PostingService {
           status: 'POSTED',
           lines: {
             create: [
-              { accountId: accounts['2400'], debit: totalPayout, credit: 0, label: 'Commissions Payable', analyticAccountId },
-              { accountId: accounts['1200'], debit: 0, credit: totalPayout, label: 'Bank - Commission Payout', analyticAccountId },
+              {
+                accountId: accounts['2400'],
+                debit: totalPayout,
+                credit: 0,
+                label: 'Commissions Payable',
+                analyticAccountId,
+              },
+              {
+                accountId: accounts['1200'],
+                debit: 0,
+                credit: totalPayout,
+                label: 'Bank - Commission Payout',
+                analyticAccountId,
+              },
             ],
           },
         },
@@ -471,7 +682,11 @@ export class PostingService {
 
   // -- Commission Clawback --
 
-  async clawbackCommissions(dealId: string, userId: string, tx?: any): Promise<void> {
+  async clawbackCommissions(
+    dealId: string,
+    userId: string,
+    tx?: any,
+  ): Promise<void> {
     const db = tx ?? this.prisma;
 
     const commissions = await db.dealCommission.findMany({
@@ -488,8 +703,11 @@ export class PostingService {
 
     // Resolve journal + accounts once for all commissions on this deal
     const location = commissions[0].deal.location;
-    const generalJournal = location.journals.find((j: { type: string }) => j.type === 'GENERAL');
-    if (!generalJournal) throw new BadRequestException('No GENERAL journal on location');
+    const generalJournal = location.journals.find(
+      (j: { type: string }) => j.type === 'GENERAL',
+    );
+    if (!generalJournal)
+      throw new BadRequestException('No GENERAL journal on location');
 
     const companyId = generalJournal.companyId;
     const accounts = await this.resolveAccounts(companyId, ['2400', '6100']);
@@ -508,8 +726,20 @@ export class PostingService {
           status: 'POSTED',
           lines: {
             create: [
-              { accountId: accounts['2400'], debit: amount, credit: 0, label: 'Commission Clawback - Payable Reversal', analyticAccountId },
-              { accountId: accounts['6100'], debit: 0, credit: amount, label: 'Commission Clawback - Expense Reversal', analyticAccountId },
+              {
+                accountId: accounts['2400'],
+                debit: amount,
+                credit: 0,
+                label: 'Commission Clawback - Payable Reversal',
+                analyticAccountId,
+              },
+              {
+                accountId: accounts['6100'],
+                debit: 0,
+                credit: amount,
+                label: 'Commission Clawback - Expense Reversal',
+                analyticAccountId,
+              },
             ],
           },
         },
@@ -529,33 +759,81 @@ export class PostingService {
       where: { id: invoiceId },
       include: { journal: true, lines: { include: { tax: true } } },
     });
-    if (inv.status !== 'DRAFT') throw new BadRequestException('Invoice not in DRAFT state');
+    if (inv.status !== 'DRAFT')
+      throw new BadRequestException('Invoice not in DRAFT state');
 
     await this.assertFiscalPeriodOpen(inv.date, inv.journal.companyId);
 
     let taxAmount = 0;
     for (const line of inv.lines) {
-      if (line.tax) taxAmount += Number(line.subtotal) * (Number(line.tax.amount) / 100);
+      if (line.tax)
+        taxAmount += Number(line.subtotal) * (Number(line.tax.amount) / 100);
     }
     const total = Number(inv.amountUntaxed) + taxAmount;
 
-    const isCustomer = inv.type === 'CUSTOMER_INVOICE' || inv.type === 'CUSTOMER_CREDIT_NOTE';
+    const isCustomer =
+      inv.type === 'CUSTOMER_INVOICE' || inv.type === 'CUSTOMER_CREDIT_NOTE';
     const prefix = isCustomer ? 'INV' : 'BILL';
 
     let glLines: any[];
     if (isCustomer) {
-      const accounts = await this.resolveAccounts(inv.journal.companyId, ['1300', '2200']);
+      const accounts = await this.resolveAccounts(inv.journal.companyId, [
+        '1300',
+        '2200',
+      ]);
       glLines = [
-        { accountId: accounts['1300'], debit: total, credit: 0, partnerId: inv.partnerId, label: `AR - ${prefix}-${invoiceId.slice(-8).toUpperCase()}` },
-        ...inv.lines.map((l) => ({ accountId: l.accountId, debit: 0, credit: Number(l.subtotal), label: l.description })),
-        ...(taxAmount > 0 ? [{ accountId: accounts['2200'], debit: 0, credit: taxAmount, label: 'VAT 14%' }] : []),
+        {
+          accountId: accounts['1300'],
+          debit: total,
+          credit: 0,
+          partnerId: inv.partnerId,
+          label: `AR - ${prefix}-${invoiceId.slice(-8).toUpperCase()}`,
+        },
+        ...inv.lines.map((l) => ({
+          accountId: l.accountId,
+          debit: 0,
+          credit: Number(l.subtotal),
+          label: l.description,
+        })),
+        ...(taxAmount > 0
+          ? [
+              {
+                accountId: accounts['2200'],
+                debit: 0,
+                credit: taxAmount,
+                label: 'VAT 14%',
+              },
+            ]
+          : []),
       ];
     } else {
-      const accounts = await this.resolveAccounts(inv.journal.companyId, ['2100']);
+      const accounts = await this.resolveAccounts(inv.journal.companyId, [
+        '2100',
+      ]);
       glLines = [
-        ...inv.lines.map((l) => ({ accountId: l.accountId, debit: Number(l.subtotal), credit: 0, label: l.description })),
-        ...(taxAmount > 0 ? [{ accountId: inv.lines[0]?.accountId ?? accounts['2100'], debit: taxAmount, credit: 0, label: 'Input VAT' }] : []),
-        { accountId: accounts['2100'], debit: 0, credit: total, partnerId: inv.partnerId, label: `AP - ${prefix}-${invoiceId.slice(-8).toUpperCase()}` },
+        ...inv.lines.map((l) => ({
+          accountId: l.accountId,
+          debit: Number(l.subtotal),
+          credit: 0,
+          label: l.description,
+        })),
+        ...(taxAmount > 0
+          ? [
+              {
+                accountId: inv.lines[0]?.accountId ?? accounts['2100'],
+                debit: taxAmount,
+                credit: 0,
+                label: 'Input VAT',
+              },
+            ]
+          : []),
+        {
+          accountId: accounts['2100'],
+          debit: 0,
+          credit: total,
+          partnerId: inv.partnerId,
+          label: `AP - ${prefix}-${invoiceId.slice(-8).toUpperCase()}`,
+        },
       ];
     }
 
@@ -572,7 +850,12 @@ export class PostingService {
       });
       await tx.invoice.update({
         where: { id: invoiceId },
-        data: { status: 'POSTED', amountTax: taxAmount, amountTotal: total, amountResidual: total },
+        data: {
+          status: 'POSTED',
+          amountTax: taxAmount,
+          amountTotal: total,
+          amountResidual: total,
+        },
       });
     });
   }
@@ -582,28 +865,62 @@ export class PostingService {
       where: { id: paymentId },
       include: { journal: true },
     });
-    if (p.status !== 'DRAFT') throw new BadRequestException('Payment not in DRAFT state');
+    if (p.status !== 'DRAFT')
+      throw new BadRequestException('Payment not in DRAFT state');
 
     await this.assertFiscalPeriodOpen(p.date, p.journal.companyId);
 
-    const isInbound = p.type === 'CUSTOMER_PAYMENT' || p.type === 'CUSTOMER_DEPOSIT';
+    const isInbound =
+      p.type === 'CUSTOMER_PAYMENT' || p.type === 'CUSTOMER_DEPOSIT';
     let glLines: any[];
 
     if (isInbound) {
-      const accounts = await this.resolveAccounts(p.journal.companyId, ['1300']);
+      const accounts = await this.resolveAccounts(p.journal.companyId, [
+        '1300',
+      ]);
       const bankAccountId = p.journal.defaultDebitAccountId;
-      if (!bankAccountId) throw new BadRequestException('Journal has no default debit account — configure it first');
+      if (!bankAccountId)
+        throw new BadRequestException(
+          'Journal has no default debit account — configure it first',
+        );
       glLines = [
-        { accountId: bankAccountId, debit: Number(p.amount), credit: 0, label: p.memo ?? `Payment ${paymentId.slice(-8)}` },
-        { accountId: accounts['1300'], debit: 0, credit: Number(p.amount), partnerId: p.partnerId ?? undefined, label: 'Clear AR' },
+        {
+          accountId: bankAccountId,
+          debit: Number(p.amount),
+          credit: 0,
+          label: p.memo ?? `Payment ${paymentId.slice(-8)}`,
+        },
+        {
+          accountId: accounts['1300'],
+          debit: 0,
+          credit: Number(p.amount),
+          partnerId: p.partnerId ?? undefined,
+          label: 'Clear AR',
+        },
       ];
     } else {
-      const accounts = await this.resolveAccounts(p.journal.companyId, ['2100']);
+      const accounts = await this.resolveAccounts(p.journal.companyId, [
+        '2100',
+      ]);
       const bankAccountId = p.journal.defaultCreditAccountId;
-      if (!bankAccountId) throw new BadRequestException('Journal has no default credit account — configure it first');
+      if (!bankAccountId)
+        throw new BadRequestException(
+          'Journal has no default credit account — configure it first',
+        );
       glLines = [
-        { accountId: accounts['2100'], debit: Number(p.amount), credit: 0, partnerId: p.partnerId ?? undefined, label: 'Clear AP' },
-        { accountId: bankAccountId, debit: 0, credit: Number(p.amount), label: p.memo ?? `Payment ${paymentId.slice(-8)}` },
+        {
+          accountId: accounts['2100'],
+          debit: Number(p.amount),
+          credit: 0,
+          partnerId: p.partnerId ?? undefined,
+          label: 'Clear AP',
+        },
+        {
+          accountId: bankAccountId,
+          debit: 0,
+          credit: Number(p.amount),
+          label: p.memo ?? `Payment ${paymentId.slice(-8)}`,
+        },
       ];
     }
 
@@ -618,7 +935,10 @@ export class PostingService {
           lines: { create: glLines },
         },
       });
-      await tx.payment.update({ where: { id: paymentId }, data: { status: 'POSTED' } });
+      await tx.payment.update({
+        where: { id: paymentId },
+        data: { status: 'POSTED' },
+      });
     });
   }
 
@@ -628,15 +948,27 @@ export class PostingService {
     const fiscal = await this.prisma.fiscalYear.findFirst({
       where: { companyId, startDate: { lte: date }, endDate: { gte: date } },
     });
-    if (!fiscal) throw new BadRequestException('No open fiscal year for the posting date.');
+    if (!fiscal)
+      throw new BadRequestException(
+        'No open fiscal year for the posting date.',
+      );
     if (fiscal.lockDate && date <= fiscal.lockDate) {
       if (userId) {
         const override = await this.prisma.userPermission.findFirst({
-          where: { userId, permissionKey: 'finance:lock-override', granted: true },
+          where: {
+            userId,
+            permissionKey: 'finance:lock-override',
+            granted: true,
+          },
         });
         if (override) {
           await this.prisma.auditLog.create({
-            data: { entityType: 'FiscalYear', entityId: fiscal.id, action: 'LOCK_OVERRIDE', userId },
+            data: {
+              entityType: 'FiscalYear',
+              entityId: fiscal.id,
+              action: 'LOCK_OVERRIDE',
+              userId,
+            },
           });
           return; // allowed
         }
@@ -647,7 +979,10 @@ export class PostingService {
     }
   }
 
-  private async resolveAccounts(companyId: string, codes: string[]): Promise<Record<string, string>> {
+  private async resolveAccounts(
+    companyId: string,
+    codes: string[],
+  ): Promise<Record<string, string>> {
     const rows = await this.prisma.account.findMany({
       where: { companyId, code: { in: codes } },
       select: { id: true, code: true },

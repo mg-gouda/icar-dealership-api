@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AssetsService } from '../finance/assets/assets.service';
 import { CurrenciesService } from '../finance/currencies/currencies.service';
@@ -29,7 +34,9 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     this.scheduleMonthlyFirstDay(2, 0, () => this.postMonthlyDepreciation());
     this.scheduleMonthlyLastDay(3, 0, () => this.monthlyFxRevaluation());
     this.scheduleDaily(8, 0, () => this.sendAppointmentReminders());
-    this.scheduleMonthlyFirstDay(4, 0, () => this.generateRecurringJournalEntries());
+    this.scheduleMonthlyFirstDay(4, 0, () =>
+      this.generateRecurringJournalEntries(),
+    );
     this.logger.log('Scheduled tasks registered');
   }
 
@@ -50,10 +57,17 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     const timer = setInterval(() => {
       const now = new Date();
       const todayKey = now.toISOString().slice(0, 10);
-      if (now.getHours() === hour && now.getMinutes() === minute && lastRunDate !== todayKey) {
+      if (
+        now.getHours() === hour &&
+        now.getMinutes() === minute &&
+        lastRunDate !== todayKey
+      ) {
         lastRunDate = todayKey;
         fn().catch((e: unknown) => {
-          this.logger.error(`Daily task @${hour}:${String(minute).padStart(2, '0')} failed`, e instanceof Error ? e.stack : String(e));
+          this.logger.error(
+            `Daily task @${hour}:${String(minute).padStart(2, '0')} failed`,
+            e instanceof Error ? e.stack : String(e),
+          );
         });
       }
     }, ONE_MINUTE);
@@ -63,15 +77,27 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
   /**
    * Run `fn` on the 1st of each month at hour:minute.
    */
-  private scheduleMonthlyFirstDay(hour: number, minute: number, fn: () => Promise<void>) {
+  private scheduleMonthlyFirstDay(
+    hour: number,
+    minute: number,
+    fn: () => Promise<void>,
+  ) {
     let lastRunMonth = '';
     const timer = setInterval(() => {
       const now = new Date();
       const monthKey = `${now.getFullYear()}-${now.getMonth()}`;
-      if (now.getDate() === 1 && now.getHours() === hour && now.getMinutes() === minute && lastRunMonth !== monthKey) {
+      if (
+        now.getDate() === 1 &&
+        now.getHours() === hour &&
+        now.getMinutes() === minute &&
+        lastRunMonth !== monthKey
+      ) {
         lastRunMonth = monthKey;
         fn().catch((e: unknown) => {
-          this.logger.error('Monthly first-day task failed', e instanceof Error ? e.stack : String(e));
+          this.logger.error(
+            'Monthly first-day task failed',
+            e instanceof Error ? e.stack : String(e),
+          );
         });
       }
     }, ONE_MINUTE);
@@ -81,7 +107,11 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
   /**
    * Run `fn` on the last day of each month at hour:minute.
    */
-  private scheduleMonthlyLastDay(hour: number, minute: number, fn: () => Promise<void>) {
+  private scheduleMonthlyLastDay(
+    hour: number,
+    minute: number,
+    fn: () => Promise<void>,
+  ) {
     let lastRunMonth = '';
     const timer = setInterval(() => {
       const now = new Date();
@@ -89,10 +119,18 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
       tomorrow.setDate(now.getDate() + 1);
       const isLastDay = now.getMonth() !== tomorrow.getMonth();
       const monthKey = `${now.getFullYear()}-${now.getMonth()}`;
-      if (isLastDay && now.getHours() === hour && now.getMinutes() === minute && lastRunMonth !== monthKey) {
+      if (
+        isLastDay &&
+        now.getHours() === hour &&
+        now.getMinutes() === minute &&
+        lastRunMonth !== monthKey
+      ) {
         lastRunMonth = monthKey;
         fn().catch((e: unknown) => {
-          this.logger.error('Monthly last-day task failed', e instanceof Error ? e.stack : String(e));
+          this.logger.error(
+            'Monthly last-day task failed',
+            e instanceof Error ? e.stack : String(e),
+          );
         });
       }
     }, ONE_MINUTE);
@@ -113,7 +151,9 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
       data: { status: 'OVERDUE' },
     });
 
-    this.logger.log(`markOverdueInstallments: ${result.count} line(s) marked OVERDUE`);
+    this.logger.log(
+      `markOverdueInstallments: ${result.count} line(s) marked OVERDUE`,
+    );
   }
 
   // ── Task 2: Post asset depreciation (monthly 1st, 02:00) ──────────
@@ -144,14 +184,20 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!generalJournal) {
-      this.logger.warn('postMonthlyDepreciation: no GENERAL journal found, skipping');
+      this.logger.warn(
+        'postMonthlyDepreciation: no GENERAL journal found, skipping',
+      );
       return;
     }
 
     let posted = 0;
     for (const line of pendingLines) {
       try {
-        await this.assetsService.postDepreciationLine(line.assetId, line.id, generalJournal.id);
+        await this.assetsService.postDepreciationLine(
+          line.assetId,
+          line.id,
+          generalJournal.id,
+        );
         posted++;
       } catch (e: unknown) {
         this.logger.error(
@@ -161,7 +207,9 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    this.logger.log(`postMonthlyDepreciation: ${posted}/${pendingLines.length} line(s) posted`);
+    this.logger.log(
+      `postMonthlyDepreciation: ${posted}/${pendingLines.length} line(s) posted`,
+    );
   }
 
   // ── Task 3: FX revaluation (monthly last day, 03:00) ──────────────
@@ -177,12 +225,18 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     // CurrenciesService.revaluate needs a userId for audit.
     // Use 'system' as the actor identifier for automated tasks.
     try {
-      const result = await this.currenciesService.revaluate(company.id, 'system');
+      const result = await this.currenciesService.revaluate(
+        company.id,
+        'system',
+      );
       this.logger.log(
         `monthlyFxRevaluation: revalued ${result.revaluedCount} line(s), variance=${result.totalVariance}`,
       );
     } catch (e: unknown) {
-      this.logger.error('monthlyFxRevaluation failed', e instanceof Error ? e.stack : String(e));
+      this.logger.error(
+        'monthlyFxRevaluation failed',
+        e instanceof Error ? e.stack : String(e),
+      );
     }
   }
 
@@ -235,19 +289,35 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     // Send emails to customers with known email addresses
     for (const apt of appointments) {
       if (apt.customer?.email) {
-        const date = apt.scheduledAt.toLocaleDateString('en-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-        const time = apt.scheduledAt.toLocaleTimeString('en-EG', { hour: '2-digit', minute: '2-digit' });
-        await this.mail.sendAppointmentReminder(
-          apt.customer.email,
-          apt.customer.name,
-          date,
-          time,
-          (apt as any).location?.name ?? 'our showroom',
-        ).catch((err: unknown) => this.logger.error(`Reminder email failed for ${apt.id}: ${err instanceof Error ? err.message : String(err)}`));
+        const date = apt.scheduledAt.toLocaleDateString('en-EG', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+        const time = apt.scheduledAt.toLocaleTimeString('en-EG', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        await this.mail
+          .sendAppointmentReminder(
+            apt.customer.email,
+            apt.customer.name,
+            date,
+            time,
+            (apt as any).location?.name ?? 'our showroom',
+          )
+          .catch((err: unknown) =>
+            this.logger.error(
+              `Reminder email failed for ${apt.id}: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          );
       }
     }
 
-    this.logger.log(`sendAppointmentReminders: ${appointments.length} reminder(s) logged`);
+    this.logger.log(
+      `sendAppointmentReminders: ${appointments.length} reminder(s) logged`,
+    );
   }
 
   // ── Task 5: Generate recurring journal entries (monthly 1st, 04:00) ──
@@ -255,14 +325,25 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
   async generateRecurringJournalEntries(): Promise<void> {
     const company = await this.prisma.company.findFirst();
     if (!company) {
-      this.logger.warn('generateRecurringJournalEntries: no company found, skipping');
+      this.logger.warn(
+        'generateRecurringJournalEntries: no company found, skipping',
+      );
       return;
     }
     try {
-      const result = await this.glService.generateRecurring(company.id, new Date(), 'system');
-      this.logger.log(`generateRecurringJournalEntries: ${result.generated} JE(s) created`);
+      const result = await this.glService.generateRecurring(
+        company.id,
+        new Date(),
+        'system',
+      );
+      this.logger.log(
+        `generateRecurringJournalEntries: ${result.generated} JE(s) created`,
+      );
     } catch (e: unknown) {
-      this.logger.error('generateRecurringJournalEntries failed', e instanceof Error ? e.stack : String(e));
+      this.logger.error(
+        'generateRecurringJournalEntries failed',
+        e instanceof Error ? e.stack : String(e),
+      );
     }
   }
 }

@@ -1,4 +1,4 @@
-import Decimal from "decimal.js";
+import Decimal from 'decimal.js';
 
 interface PaymentTermLineInput {
   valueType: string; // BALANCE, PERCENT, FIXED
@@ -30,13 +30,13 @@ export function computePaymentTermDueDates(
     let amount: Decimal;
 
     switch (line.valueType) {
-      case "PERCENT":
+      case 'PERCENT':
         amount = total.times(new Decimal(line.valueAmount)).div(100);
         break;
-      case "FIXED":
+      case 'FIXED':
         amount = new Decimal(line.valueAmount);
         break;
-      case "BALANCE":
+      case 'BALANCE':
       default:
         amount = remaining;
         break;
@@ -52,17 +52,25 @@ export function computePaymentTermDueDates(
   return installments;
 }
 
-function computeDueDate(invoiceDate: Date, nbDays: number, delayType: string): Date {
+function computeDueDate(
+  invoiceDate: Date,
+  nbDays: number,
+  delayType: string,
+): Date {
   switch (delayType) {
-    case "DAYS_AFTER_END_OF_MONTH": {
+    case 'DAYS_AFTER_END_OF_MONTH': {
       const monthEnd = endOfMonth(invoiceDate);
       return addDays(monthEnd, nbDays);
     }
-    case "DAYS_AFTER_END_OF_NEXT_MONTH": {
-      const nextMonth = new Date(invoiceDate.getFullYear(), invoiceDate.getMonth() + 2, 0);
+    case 'DAYS_AFTER_END_OF_NEXT_MONTH': {
+      const nextMonth = new Date(
+        invoiceDate.getFullYear(),
+        invoiceDate.getMonth() + 2,
+        0,
+      );
       return addDays(nextMonth, nbDays);
     }
-    case "DAYS_AFTER":
+    case 'DAYS_AFTER':
     default:
       return addDays(invoiceDate, nbDays);
   }

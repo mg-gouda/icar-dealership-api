@@ -45,7 +45,12 @@ export class BankStatementsService {
     endDate: Date;
     startingBalance: number;
     endingBalance: number;
-    lines?: { date: Date; description: string; amount: number; reference?: string }[];
+    lines?: {
+      date: Date;
+      description: string;
+      amount: number;
+      reference?: string;
+    }[];
   }) {
     const { lines, ...header } = data;
     return this.prisma.bankStatement.create({
@@ -57,15 +62,22 @@ export class BankStatementsService {
     });
   }
 
-  async addLine(statementId: string, data: {
-    date: Date;
-    description: string;
-    amount: number;
-    reference?: string;
-  }) {
-    const stmt = await this.prisma.bankStatement.findUnique({ where: { id: statementId } });
+  async addLine(
+    statementId: string,
+    data: {
+      date: Date;
+      description: string;
+      amount: number;
+      reference?: string;
+    },
+  ) {
+    const stmt = await this.prisma.bankStatement.findUnique({
+      where: { id: statementId },
+    });
     if (!stmt) throw new NotFoundException('Bank statement not found');
-    return this.prisma.bankStatementLine.create({ data: { ...data, bankStatementId: statementId } });
+    return this.prisma.bankStatementLine.create({
+      data: { ...data, bankStatementId: statementId },
+    });
   }
 
   async listBankAccounts() {
@@ -76,10 +88,15 @@ export class BankStatementsService {
   }
 
   async importCsv(statementId: string, csvText: string) {
-    const stmt = await this.prisma.bankStatement.findUnique({ where: { id: statementId } });
+    const stmt = await this.prisma.bankStatement.findUnique({
+      where: { id: statementId },
+    });
     if (!stmt) throw new NotFoundException('Bank statement not found');
 
-    const rawLines = csvText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const rawLines = csvText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
     // Skip header row
     const dataLines = rawLines.slice(1);
     const errors: { row: number; error: string }[] = [];
@@ -89,7 +106,10 @@ export class BankStatementsService {
       const row = i + 2; // 1-indexed, +1 for header
       const cols = dataLines[i].split(',').map((c) => c.trim());
       if (cols.length < 5) {
-        errors.push({ row, error: 'Expected 5 columns: date,description,debit,credit,balance' });
+        errors.push({
+          row,
+          error: 'Expected 5 columns: date,description,debit,credit,balance',
+        });
         continue;
       }
 
@@ -121,7 +141,9 @@ export class BankStatementsService {
 
   async importOfx(statementId: string, ofxText: string) {
     // ponytail: regex-based OFX parser -- no external lib needed
-    const stmt = await this.prisma.bankStatement.findUnique({ where: { id: statementId } });
+    const stmt = await this.prisma.bankStatement.findUnique({
+      where: { id: statementId },
+    });
     if (!stmt) throw new NotFoundException('Bank statement not found');
 
     const txnBlocks = [...ofxText.matchAll(/<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi)];
@@ -130,7 +152,8 @@ export class BankStatementsService {
 
     for (let i = 0; i < txnBlocks.length; i++) {
       const block = txnBlocks[i][1];
-      const get = (tag: string) => block.match(new RegExp(`<${tag}>([^<\\n]+)`, 'i'))?.[1]?.trim();
+      const get = (tag: string) =>
+        block.match(new RegExp(`<${tag}>([^<\\n]+)`, 'i'))?.[1]?.trim();
 
       const rawDate = get('DTPOSTED') ?? get('DTAVAIL') ?? '';
       const rawAmt = get('TRNAMT') ?? '0';
@@ -163,7 +186,10 @@ export class BankStatementsService {
         });
         imported++;
       } catch (e: unknown) {
-        errors.push({ row: i + 1, error: e instanceof Error ? e.message : 'Unknown error' });
+        errors.push({
+          row: i + 1,
+          error: e instanceof Error ? e.message : 'Unknown error',
+        });
       }
     }
     return { imported, errors };

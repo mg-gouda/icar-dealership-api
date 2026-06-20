@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -11,11 +15,27 @@ export class PaymentsService {
     private posting: PostingService,
   ) {}
 
-  findAll(companyId: string, query: {
-    type?: string; status?: string; partnerId?: string;
-    dateFrom?: string; dateTo?: string; page?: number; limit?: number;
-  }) {
-    const { type, status, partnerId, dateFrom, dateTo, page = 1, limit = 20 } = query;
+  findAll(
+    companyId: string,
+    query: {
+      type?: string;
+      status?: string;
+      partnerId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      page?: number;
+      limit?: number;
+    },
+  ) {
+    const {
+      type,
+      status,
+      partnerId,
+      dateFrom,
+      dateTo,
+      page = 1,
+      limit = 20,
+    } = query;
     return this.prisma.payment.findMany({
       where: {
         // Payment has no companyId → filter via journal.companyId
@@ -23,18 +43,22 @@ export class PaymentsService {
         ...(type && { type: type as any }),
         ...(status && { status: status as any }),
         ...(partnerId && { partnerId }),
-        ...(dateFrom || dateTo ? {
-          date: {
-            ...(dateFrom && { gte: new Date(dateFrom) }),
-            ...(dateTo && { lte: new Date(dateTo) }),
-          },
-        } : {}),
+        ...(dateFrom || dateTo
+          ? {
+              date: {
+                ...(dateFrom && { gte: new Date(dateFrom) }),
+                ...(dateTo && { lte: new Date(dateTo) }),
+              },
+            }
+          : {}),
       },
       include: {
         partner: { select: { id: true, name: true } },
         journal: { select: { id: true, code: true, name: true } },
         allocations: {
-          include: { invoice: { select: { id: true, status: true, amountTotal: true } } },
+          include: {
+            invoice: { select: { id: true, status: true, amountTotal: true } },
+          },
         },
       },
       orderBy: { date: 'desc' },
@@ -58,11 +82,20 @@ export class PaymentsService {
     return p;
   }
 
-  async create(data: {
-    type: string; partnerId: string; journalId: string;
-    amount: number; date?: string; method: string;
-    memo?: string; dealId?: string; invoiceIds?: string[];
-  }, userId: string) {
+  async create(
+    data: {
+      type: string;
+      partnerId: string;
+      journalId: string;
+      amount: number;
+      date?: string;
+      method: string;
+      memo?: string;
+      dealId?: string;
+      invoiceIds?: string[];
+    },
+    userId: string,
+  ) {
     const payment = await this.prisma.$transaction(async (tx) => {
       const p = await tx.payment.create({
         data: {
@@ -83,7 +116,9 @@ export class PaymentsService {
         let remaining = data.amount;
         for (const invoiceId of data.invoiceIds) {
           if (remaining <= 0) break;
-          const inv = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+          const inv = await tx.invoice.findUniqueOrThrow({
+            where: { id: invoiceId },
+          });
           const allocAmt = Math.min(remaining, Number(inv.amountResidual));
           await tx.paymentAllocation.create({
             data: { paymentId: p.id, invoiceId, amount: allocAmt },
@@ -102,25 +137,52 @@ export class PaymentsService {
       return p;
     });
 
-    await this.audit.log({ entity: 'Payment', entityId: payment.id, action: 'CREATE', userId, newValue: payment });
+    await this.audit.log({
+      entity: 'Payment',
+      entityId: payment.id,
+      action: 'CREATE',
+      userId,
+      newValue: payment,
+    });
     return payment;
   }
 
   async postPayment(id: string, userId: string) {
     await this.posting.postPayment(id);
-    await this.audit.log({ entity: 'Payment', entityId: id, action: 'POST', userId });
+    await this.audit.log({
+      entity: 'Payment',
+      entityId: id,
+      action: 'POST',
+      userId,
+    });
     return this.findById(id);
   }
 
-  async allocate(id: string, invoiceId: string, amount: number, userId: string) {
-    const payment = await this.prisma.payment.findUniqueOrThrow({ where: { id } });
-    if (payment.status !== 'POSTED') throw new BadRequestException('Only POSTED payments can be allocated');
+  async allocate(
+    id: string,
+    invoiceId: string,
+    amount: number,
+    userId: string,
+  ) {
+    const payment = await this.prisma.payment.findUniqueOrThrow({
+      where: { id },
+    });
+    if (payment.status !== 'POSTED')
+      throw new BadRequestException('Only POSTED payments can be allocated');
 
-    const invoice = await this.prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
-    if (invoice.status !== 'POSTED') throw new BadRequestException('Can only allocate against POSTED invoices');
+    const invoice = await this.prisma.invoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+    });
+    if (invoice.status !== 'POSTED')
+      throw new BadRequestException(
+        'Can only allocate against POSTED invoices',
+      );
 
     const residual = Number(invoice.amountResidual ?? invoice.amountTotal);
-    if (amount > residual) throw new BadRequestException(`Allocation amount exceeds invoice residual (${residual})`);
+    if (amount > residual)
+      throw new BadRequestException(
+        `Allocation amount exceeds invoice residual (${residual})`,
+      );
 
     const allocation = await this.prisma.$transaction(async (tx) => {
       const alloc = await tx.paymentAllocation.create({
@@ -136,7 +198,13 @@ export class PaymentsService {
       });
       return alloc;
     });
-    await this.audit.log({ entity: 'Payment', entityId: id, action: 'ALLOCATE', userId, newValue: { invoiceId, amount } });
+    await this.audit.log({
+      entity: 'Payment',
+      entityId: id,
+      action: 'ALLOCATE',
+      userId,
+      newValue: { invoiceId, amount },
+    });
     return allocation;
   }
 
@@ -145,7 +213,10 @@ export class PaymentsService {
       where: { id },
       include: { allocations: true },
     });
-    if (p.status === 'POSTED') throw new BadRequestException('Posted payments must be reversed via a debit note');
+    if (p.status === 'POSTED')
+      throw new BadRequestException(
+        'Posted payments must be reversed via a debit note',
+      );
 
     await this.prisma.$transaction(async (tx) => {
       // unallocate invoices
@@ -161,6 +232,11 @@ export class PaymentsService {
       }
       await tx.payment.update({ where: { id }, data: { status: 'CANCELLED' } });
     });
-    await this.audit.log({ entity: 'Payment', entityId: id, action: 'CANCEL', userId });
+    await this.audit.log({
+      entity: 'Payment',
+      entityId: id,
+      action: 'CANCEL',
+      userId,
+    });
   }
 }

@@ -6,9 +6,9 @@
  * e.g., if base=EGP and USD rate=50, then 1 USD = 50 EGP.
  */
 
-import { BadRequestException } from "@nestjs/common";
-import Decimal from "decimal.js";
-import type { PrismaClient } from "@prisma/client";
+import { BadRequestException } from '@nestjs/common';
+import Decimal from 'decimal.js';
+import type { PrismaClient } from '@prisma/client';
 
 /**
  * Look up the exchange rate for a foreign currency on a given date.
@@ -27,7 +27,7 @@ export async function getRate(
       companyId,
       date: { lte: date },
     },
-    orderBy: { date: "desc" },
+    orderBy: { date: 'desc' },
     select: {
       rate: true,
       currency: { select: { code: true } },
@@ -42,7 +42,7 @@ export async function getRate(
     });
     const code = currency?.code ?? currencyId;
     throw new BadRequestException(
-      `No exchange rate found for ${code} on or before ${date.toISOString().split("T")[0]}. Please add a rate in Finance > Configuration > Currencies.`,
+      `No exchange rate found for ${code} on or before ${date.toISOString().split('T')[0]}. Please add a rate in Finance > Configuration > Currencies.`,
     );
   }
 

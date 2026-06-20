@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -23,7 +33,12 @@ export class PurchaseOrdersController {
     @Query('page') page = '1',
     @Query('limit') limit = '20',
   ) {
-    return this.svc.list({ locationId, status, page: Number(page), limit: Number(limit) });
+    return this.svc.list({
+      locationId,
+      status,
+      page: Number(page),
+      limit: Number(limit),
+    });
   }
 
   @Get(':id')
@@ -48,7 +63,10 @@ export class PurchaseOrdersController {
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   receive(
     @Param('id') id: string,
-    @Body() body: { lines: { purchaseOrderLineId: string; quantityReceived: number }[] },
+    @Body()
+    body: {
+      lines: { purchaseOrderLineId: string; quantityReceived: number }[];
+    },
   ) {
     return this.svc.receive(id, body.lines);
   }

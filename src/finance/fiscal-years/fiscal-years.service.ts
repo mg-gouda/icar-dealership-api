@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { generatePeriods } from '../engines/period-engine';
@@ -25,12 +30,15 @@ export class FiscalYearsService {
     return fy;
   }
 
-  async create(data: {
-    companyId: string;
-    name: string;
-    startDate: string;
-    endDate: string;
-  }, userId: string) {
+  async create(
+    data: {
+      companyId: string;
+      name: string;
+      startDate: string;
+      endDate: string;
+    },
+    userId: string,
+  ) {
     const startDate = new Date(data.startDate);
     const endDate = new Date(data.endDate);
 
@@ -43,7 +51,9 @@ export class FiscalYearsService {
       },
     });
     if (overlap) {
-      throw new BadRequestException(`Date range overlaps with fiscal year: ${overlap.name}`);
+      throw new BadRequestException(
+        `Date range overlaps with fiscal year: ${overlap.name}`,
+      );
     }
 
     const fy = await this.prisma.fiscalYear.create({
@@ -56,7 +66,10 @@ export class FiscalYearsService {
     });
 
     await this.audit.log({
-      userId, action: 'CREATE', entity: 'FiscalYear', entityId: fy.id,
+      userId,
+      action: 'CREATE',
+      entity: 'FiscalYear',
+      entityId: fy.id,
     });
     return fy;
   }
@@ -69,10 +82,17 @@ export class FiscalYearsService {
    * generated period data for the caller to consume; actual storage
    * depends on schema evolution.
    */
-  async generatePeriodsForYear(id: string, companyId: string, body: {
-    includePeriod13?: boolean;
-  }, userId: string) {
-    const fy = await this.prisma.fiscalYear.findFirst({ where: { id, companyId } });
+  async generatePeriodsForYear(
+    id: string,
+    companyId: string,
+    body: {
+      includePeriod13?: boolean;
+    },
+    userId: string,
+  ) {
+    const fy = await this.prisma.fiscalYear.findFirst({
+      where: { id, companyId },
+    });
     if (!fy) throw new NotFoundException('Fiscal year not found');
 
     const periods = generatePeriods(
@@ -82,7 +102,10 @@ export class FiscalYearsService {
     );
 
     await this.audit.log({
-      userId, action: 'GENERATE_PERIODS', entity: 'FiscalYear', entityId: id,
+      userId,
+      action: 'GENERATE_PERIODS',
+      entity: 'FiscalYear',
+      entityId: id,
       changes: { periodCount: periods.length },
     });
 
@@ -90,11 +113,18 @@ export class FiscalYearsService {
     return { fiscalYearId: id, periods };
   }
 
-  async update(id: string, companyId: string, data: {
-    name?: string;
-    lockDate?: string | null;
-  }, userId: string) {
-    const fy = await this.prisma.fiscalYear.findFirst({ where: { id, companyId } });
+  async update(
+    id: string,
+    companyId: string,
+    data: {
+      name?: string;
+      lockDate?: string | null;
+    },
+    userId: string,
+  ) {
+    const fy = await this.prisma.fiscalYear.findFirst({
+      where: { id, companyId },
+    });
     if (!fy) throw new NotFoundException('Fiscal year not found');
 
     const updateData: any = {};
@@ -108,14 +138,19 @@ export class FiscalYearsService {
       data: updateData,
     });
     await this.audit.log({
-      userId, action: 'UPDATE', entity: 'FiscalYear', entityId: id,
+      userId,
+      action: 'UPDATE',
+      entity: 'FiscalYear',
+      entityId: id,
       changes: { before: fy, after: updated },
     });
     return updated;
   }
 
   async delete(id: string, companyId: string, userId: string) {
-    const fy = await this.prisma.fiscalYear.findFirst({ where: { id, companyId } });
+    const fy = await this.prisma.fiscalYear.findFirst({
+      where: { id, companyId },
+    });
     if (!fy) throw new NotFoundException('Fiscal year not found');
 
     // Check for posted entries in range
@@ -134,7 +169,10 @@ export class FiscalYearsService {
 
     await this.prisma.fiscalYear.delete({ where: { id } });
     await this.audit.log({
-      userId, action: 'DELETE', entity: 'FiscalYear', entityId: id,
+      userId,
+      action: 'DELETE',
+      entity: 'FiscalYear',
+      entityId: id,
     });
     return { deleted: true };
   }
@@ -143,17 +181,23 @@ export class FiscalYearsService {
    * Lock a fiscal year by setting its lockDate to its endDate.
    */
   async lock(id: string, companyId: string, userId: string) {
-    const fy = await this.prisma.fiscalYear.findFirst({ where: { id, companyId } });
+    const fy = await this.prisma.fiscalYear.findFirst({
+      where: { id, companyId },
+    });
     if (!fy) throw new NotFoundException('Fiscal year not found');
 
-    if (fy.lockDate) throw new BadRequestException('Fiscal year already locked');
+    if (fy.lockDate)
+      throw new BadRequestException('Fiscal year already locked');
 
     const updated = await this.prisma.fiscalYear.update({
       where: { id },
       data: { lockDate: fy.endDate },
     });
     await this.audit.log({
-      userId, action: 'LOCK', entity: 'FiscalYear', entityId: id,
+      userId,
+      action: 'LOCK',
+      entity: 'FiscalYear',
+      entityId: id,
     });
     return updated;
   }
@@ -162,17 +206,23 @@ export class FiscalYearsService {
    * Unlock a fiscal year by clearing its lockDate.
    */
   async unlock(id: string, companyId: string, userId: string) {
-    const fy = await this.prisma.fiscalYear.findFirst({ where: { id, companyId } });
+    const fy = await this.prisma.fiscalYear.findFirst({
+      where: { id, companyId },
+    });
     if (!fy) throw new NotFoundException('Fiscal year not found');
 
-    if (!fy.lockDate) throw new BadRequestException('Fiscal year is not locked');
+    if (!fy.lockDate)
+      throw new BadRequestException('Fiscal year is not locked');
 
     const updated = await this.prisma.fiscalYear.update({
       where: { id },
       data: { lockDate: null },
     });
     await this.audit.log({
-      userId, action: 'UNLOCK', entity: 'FiscalYear', entityId: id,
+      userId,
+      action: 'UNLOCK',
+      entity: 'FiscalYear',
+      entityId: id,
     });
     return updated;
   }

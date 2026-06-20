@@ -5,9 +5,9 @@
  * and write-off journal entry generation for bank reconciliation.
  */
 
-import Decimal from "decimal.js";
+import Decimal from 'decimal.js';
 
-import type { ComputedLine } from "./move-engine";
+import type { ComputedLine } from './move-engine';
 
 // ── Types ──
 
@@ -69,7 +69,13 @@ export function suggestMatches(
 
       // For deposits (positive amounts), match against debit journal items
       // For withdrawals (negative amounts), match against credit journal items
-      if (stAmount.abs().minus(jBalance.abs()).abs().lessThanOrEqualTo(new Decimal("0.01"))) {
+      if (
+        stAmount
+          .abs()
+          .minus(jBalance.abs())
+          .abs()
+          .lessThanOrEqualTo(new Decimal('0.01'))
+      ) {
         confidence += 50;
       }
 
@@ -83,8 +89,13 @@ export function suggestMatches(
       }
 
       // Reference matching — case-insensitive substring match
-      const stRef = (stLine.ref || stLine.name || "").toLowerCase();
-      const jRef = (jItem.ref || jItem.moveRef || jItem.name || "").toLowerCase();
+      const stRef = (stLine.ref || stLine.name || '').toLowerCase();
+      const jRef = (
+        jItem.ref ||
+        jItem.moveRef ||
+        jItem.name ||
+        ''
+      ).toLowerCase();
       if (stRef && jRef && (stRef.includes(jRef) || jRef.includes(stRef))) {
         confidence += 30;
       }
@@ -108,7 +119,10 @@ export function suggestMatches(
   const result: MatchSuggestion[] = [];
 
   for (const c of candidates) {
-    if (usedStatementLines.has(c.statementLineId) || usedJournalItems.has(c.journalItemId)) {
+    if (
+      usedStatementLines.has(c.statementLineId) ||
+      usedJournalItems.has(c.journalItemId)
+    ) {
       continue;
     }
     result.push(c);
@@ -137,13 +151,15 @@ export function validateReconciliation(
 
   let jiTotal = new Decimal(0);
   for (const item of journalItemBalances) {
-    jiTotal = jiTotal.plus(new Decimal(item.debit).minus(new Decimal(item.credit)));
+    jiTotal = jiTotal.plus(
+      new Decimal(item.debit).minus(new Decimal(item.credit)),
+    );
   }
 
   const difference = stTotal.minus(jiTotal).minus(new Decimal(writeOffAmount));
 
   return {
-    isValid: difference.abs().lessThanOrEqualTo(new Decimal("0.01")),
+    isValid: difference.abs().lessThanOrEqualTo(new Decimal('0.01')),
     difference: difference.toDecimalPlaces(4),
   };
 }
@@ -169,8 +185,8 @@ export function buildWriteOffMoveLines(
   const bankLine: ComputedLine = {
     accountId: bankAccountId,
     partnerId,
-    name: "Write-Off",
-    displayType: "PRODUCT",
+    name: 'Write-Off',
+    displayType: 'PRODUCT',
     debit: isPositive ? absAmount : new Decimal(0),
     credit: isPositive ? new Decimal(0) : absAmount,
     balance: isPositive ? absAmount : absAmount.neg(),
@@ -186,8 +202,8 @@ export function buildWriteOffMoveLines(
   const writeOffLine: ComputedLine = {
     accountId: writeOffAccountId,
     partnerId,
-    name: "Write-Off",
-    displayType: "PRODUCT",
+    name: 'Write-Off',
+    displayType: 'PRODUCT',
     debit: isPositive ? new Decimal(0) : absAmount,
     credit: isPositive ? absAmount : new Decimal(0),
     balance: isPositive ? absAmount.neg() : absAmount,

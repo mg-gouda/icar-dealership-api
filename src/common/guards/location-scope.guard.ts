@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { LOCATION_SCOPE_KEY } from '../decorators/location-scope.decorator';
 
@@ -7,10 +12,10 @@ export class LocationScopeGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requireScope = this.reflector.getAllAndOverride<boolean>(LOCATION_SCOPE_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const requireScope = this.reflector.getAllAndOverride<boolean>(
+      LOCATION_SCOPE_KEY,
+      [context.getHandler(), context.getClass()],
+    );
     if (!requireScope) return true;
 
     const request = context.switchToHttp().getRequest();

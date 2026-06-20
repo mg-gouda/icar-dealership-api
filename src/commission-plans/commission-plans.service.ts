@@ -8,7 +8,10 @@ export class CommissionPlansService {
   list(active?: boolean) {
     return this.prisma.commissionPlan.findMany({
       where: active !== undefined ? { active } : {},
-      include: { tiers: { orderBy: { minValue: 'asc' } }, location: { select: { name: true } } },
+      include: {
+        tiers: { orderBy: { minValue: 'asc' } },
+        location: { select: { name: true } },
+      },
       orderBy: { createdAt: 'asc' },
     });
   }
@@ -16,7 +19,10 @@ export class CommissionPlansService {
   findOne(id: string) {
     return this.prisma.commissionPlan.findUniqueOrThrow({
       where: { id },
-      include: { tiers: { orderBy: { minValue: 'asc' } }, location: { select: { name: true } } },
+      include: {
+        tiers: { orderBy: { minValue: 'asc' } },
+        location: { select: { name: true } },
+      },
     });
   }
 
@@ -43,7 +49,11 @@ export class CommissionPlansService {
    *   7. applicableRole only
    *   8. company-wide default (all nullable)
    */
-  async resolve(opts: { locationId?: string; vehicleCategory?: string; applicableRole?: string }) {
+  async resolve(opts: {
+    locationId?: string;
+    vehicleCategory?: string;
+    applicableRole?: string;
+  }) {
     const allActive = await this.prisma.commissionPlan.findMany({
       where: { active: true },
       include: { tiers: { orderBy: { minValue: 'asc' } } },
@@ -53,14 +63,19 @@ export class CommissionPlansService {
       let s = 0;
       if (opts.locationId && p.locationId === opts.locationId) s += 4;
       else if (p.locationId) return -1; // wrong location — skip
-      if (opts.vehicleCategory && p.vehicleCategory === opts.vehicleCategory) s += 2;
+      if (opts.vehicleCategory && p.vehicleCategory === opts.vehicleCategory)
+        s += 2;
       else if (p.vehicleCategory) return -1; // wrong category — skip
-      if (opts.applicableRole && p.applicableRole === opts.applicableRole) s += 1;
-      else if (p.applicableRole && p.applicableRole !== opts.applicableRole) return -1;
+      if (opts.applicableRole && p.applicableRole === opts.applicableRole)
+        s += 1;
+      else if (p.applicableRole && p.applicableRole !== opts.applicableRole)
+        return -1;
       return s;
     };
 
-    const candidates = allActive.map((p) => ({ plan: p, score: score(p) })).filter((c) => c.score >= 0);
+    const candidates = allActive
+      .map((p) => ({ plan: p, score: score(p) }))
+      .filter((c) => c.score >= 0);
     if (!candidates.length) return null;
     candidates.sort((a, b) => b.score - a.score);
     return candidates[0].plan;
@@ -71,10 +86,16 @@ export class CommissionPlansService {
     if (tiers !== undefined) {
       // Replace all tiers atomically
       await this.prisma.$transaction([
-        this.prisma.commissionTier.deleteMany({ where: { commissionPlanId: id } }),
-        ...(tiers.length > 0 ? [this.prisma.commissionTier.createMany({
-          data: tiers.map((t: any) => ({ ...t, commissionPlanId: id })),
-        })] : []),
+        this.prisma.commissionTier.deleteMany({
+          where: { commissionPlanId: id },
+        }),
+        ...(tiers.length > 0
+          ? [
+              this.prisma.commissionTier.createMany({
+                data: tiers.map((t: any) => ({ ...t, commissionPlanId: id })),
+              }),
+            ]
+          : []),
       ]);
     }
     return this.prisma.commissionPlan.update({

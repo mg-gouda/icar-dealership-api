@@ -1,5 +1,14 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { TaxesService } from './taxes.service';

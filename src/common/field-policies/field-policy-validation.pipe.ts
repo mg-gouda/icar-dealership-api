@@ -50,7 +50,11 @@ export class FieldPolicyWritePipe implements PipeTransform {
 }
 
 // ponytail: simpler standalone fn for manual use in controllers/services
-export function assertFieldWriteAccess(entity: string, body: Record<string, any>, userRole: Role): void {
+export function assertFieldWriteAccess(
+  entity: string,
+  body: Record<string, any>,
+  userRole: Role,
+): void {
   const policies = FIELD_POLICIES.filter((p) => p.entity === entity);
   for (const policy of policies) {
     const writeMin = policy.writeMinRole ?? policy.minRole;

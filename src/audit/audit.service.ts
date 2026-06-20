@@ -28,7 +28,8 @@ export class AuditService {
         entityType: params.entity ?? params.entityType ?? 'UNKNOWN',
         entityId: params.entityId,
         locationId: params.locationId,
-        changes: (params.changes ?? (params.newValue ? { newValue: params.newValue } : undefined)) as any,
+        changes: (params.changes ??
+          (params.newValue ? { newValue: params.newValue } : undefined)) as any,
       },
     });
   }

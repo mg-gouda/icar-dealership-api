@@ -1,5 +1,12 @@
 import {
-  Controller, Get, Post, Patch, Param, Body, UseGuards, Request,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Param,
+  Body,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { LocationsService } from './locations.service';
@@ -29,7 +36,10 @@ export class LocationsController {
   @Post()
   @Roles('ADMIN', 'SUPER_ADMIN')
   create(@Body() body: any, @Request() req: any) {
-    return this.svc.create({ ...body, companyId: req.user.companyId }, req.user.id);
+    return this.svc.create(
+      { ...body, companyId: req.user.companyId },
+      req.user.id,
+    );
   }
 
   @Patch(':id')
@@ -87,7 +97,11 @@ export class LocationsController {
   @Get('settings/security')
   @Roles('ADMIN', 'SUPER_ADMIN')
   getSecuritySettings() {
-    return { sessionTimeoutMinutes: 480, require2fa: ['FINANCE', 'ADMIN', 'SUPER_ADMIN'], maxLoginAttempts: 5 };
+    return {
+      sessionTimeoutMinutes: 480,
+      require2fa: ['FINANCE', 'ADMIN', 'SUPER_ADMIN'],
+      maxLoginAttempts: 5,
+    };
   }
 
   @Patch('settings/security')
@@ -95,5 +109,4 @@ export class LocationsController {
   updateSecuritySettings(@Body() body: any) {
     return { updated: true, ...body };
   }
-
 }

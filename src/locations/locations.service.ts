@@ -30,42 +30,95 @@ export class LocationsService {
     return loc;
   }
 
-  async create(data: {
-    companyId: string;
-    name: string;
-    address?: string;
-    city?: string;
-    phone?: string;
-  }, userId: string) {
+  async create(
+    data: {
+      companyId: string;
+      name: string;
+      address?: string;
+      city?: string;
+      phone?: string;
+    },
+    userId: string,
+  ) {
     const loc = await this.prisma.location.create({ data });
-    await this.audit.log({ entity: 'Location', entityId: loc.id, action: 'CREATE', userId, newValue: loc });
+    await this.audit.log({
+      entity: 'Location',
+      entityId: loc.id,
+      action: 'CREATE',
+      userId,
+      newValue: loc,
+    });
     return loc;
   }
 
-  async update(id: string, data: Partial<{
-    name: string; address: string; city: string; phone: string;
-    defaultAdminFee: number; defaultInsuranceFee: number;
-    logoUrl: string; displayName: string; businessHours: unknown;
-    timezone: string;
-  }>, userId: string) {
-    const loc = await this.prisma.location.update({ where: { id }, data: data as any });
-    await this.audit.log({ entity: 'Location', entityId: id, action: 'UPDATE', userId, newValue: data });
+  async update(
+    id: string,
+    data: Partial<{
+      name: string;
+      address: string;
+      city: string;
+      phone: string;
+      defaultAdminFee: number;
+      defaultInsuranceFee: number;
+      logoUrl: string;
+      displayName: string;
+      businessHours: unknown;
+      timezone: string;
+    }>,
+    userId: string,
+  ) {
+    const loc = await this.prisma.location.update({
+      where: { id },
+      data: data as any,
+    });
+    await this.audit.log({
+      entity: 'Location',
+      entityId: id,
+      action: 'UPDATE',
+      userId,
+      newValue: data,
+    });
     return loc;
   }
 
   async getCompanyProfile(companyId: string) {
     return this.prisma.company.findUniqueOrThrow({
       where: { id: companyId },
-      select: { id: true, name: true, taxId: true, address: true, fiscalYearStartMonth: true, adminFeeBoundsPercent: true, insuranceFeeBoundsPercent: true },
+      select: {
+        id: true,
+        name: true,
+        taxId: true,
+        address: true,
+        fiscalYearStartMonth: true,
+        adminFeeBoundsPercent: true,
+        insuranceFeeBoundsPercent: true,
+      },
     });
   }
 
-  async updateCompanyProfile(companyId: string, data: Partial<{
-    name: string; taxId: string; address: string; fiscalYearStartMonth: number;
-    adminFeeBoundsPercent: number; insuranceFeeBoundsPercent: number;
-  }>, userId: string) {
-    const company = await this.prisma.company.update({ where: { id: companyId }, data });
-    await this.audit.log({ entity: 'Company', entityId: companyId, action: 'UPDATE', userId, newValue: data });
+  async updateCompanyProfile(
+    companyId: string,
+    data: Partial<{
+      name: string;
+      taxId: string;
+      address: string;
+      fiscalYearStartMonth: number;
+      adminFeeBoundsPercent: number;
+      insuranceFeeBoundsPercent: number;
+    }>,
+    userId: string,
+  ) {
+    const company = await this.prisma.company.update({
+      where: { id: companyId },
+      data,
+    });
+    await this.audit.log({
+      entity: 'Company',
+      entityId: companyId,
+      action: 'UPDATE',
+      userId,
+      newValue: data,
+    });
     return company;
   }
 }

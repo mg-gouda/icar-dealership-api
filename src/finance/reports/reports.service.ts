@@ -51,7 +51,10 @@ export class ReportsService {
     const rows = await this.prisma.journalEntryLine.groupBy({
       by: ['accountId'],
       where: {
-        account: { companyId, type: { in: [...incomeTypes, ...expenseTypes] as any[] } },
+        account: {
+          companyId,
+          type: { in: [...incomeTypes, ...expenseTypes] as any[] },
+        },
         journalEntry: {
           status: 'POSTED',
           date: { gte: dateFrom, lte: dateTo },
@@ -80,7 +83,13 @@ export class ReportsService {
       const credit = new Decimal(r._sum?.credit?.toString() ?? '0');
       const net = credit.minus(debit); // income: credit > debit
 
-      const line = { accountId: r.accountId, code: acc.code, name: acc.name, type: acc.type, net };
+      const line = {
+        accountId: r.accountId,
+        code: acc.code,
+        name: acc.name,
+        type: acc.type,
+        net,
+      };
 
       if (incomeTypes.includes(acc.type)) {
         incomeLines.push(line);
@@ -101,14 +110,30 @@ export class ReportsService {
   }
 
   async balanceSheet(companyId: string, asOf: Date) {
-    const assetTypes = ['ASSET', 'CURRENT_ASSET', 'FIXED_ASSET', 'BANK', 'CASH'];
-    const liabilityTypes = ['LIABILITY', 'CURRENT_LIABILITY', 'LONG_TERM_LIABILITY', 'PAYABLE'];
+    const assetTypes = [
+      'ASSET',
+      'CURRENT_ASSET',
+      'FIXED_ASSET',
+      'BANK',
+      'CASH',
+    ];
+    const liabilityTypes = [
+      'LIABILITY',
+      'CURRENT_LIABILITY',
+      'LONG_TERM_LIABILITY',
+      'PAYABLE',
+    ];
     const equityTypes = ['EQUITY', 'RETAINED_EARNINGS'];
 
     const rows = await this.prisma.journalEntryLine.groupBy({
       by: ['accountId'],
       where: {
-        account: { companyId, type: { in: [...assetTypes, ...liabilityTypes, ...equityTypes] as any[] } },
+        account: {
+          companyId,
+          type: {
+            in: [...assetTypes, ...liabilityTypes, ...equityTypes] as any[],
+          },
+        },
         journalEntry: {
           status: 'POSTED',
           date: { lte: asOf },
@@ -138,7 +163,13 @@ export class ReportsService {
       const debit = new Decimal(r._sum?.debit?.toString() ?? '0');
       const credit = new Decimal(r._sum?.credit?.toString() ?? '0');
       const balance = debit.minus(credit);
-      const line = { accountId: r.accountId, code: acc.code, name: acc.name, type: acc.type, balance };
+      const line = {
+        accountId: r.accountId,
+        code: acc.code,
+        name: acc.name,
+        type: acc.type,
+        balance,
+      };
 
       if (assetTypes.includes(acc.type)) {
         assets.push(line);
@@ -186,20 +217,25 @@ export class ReportsService {
     });
 
     const buckets = [0, 30, 60, 90, 120];
-    const partnerMap = new Map<string, {
-      partnerId: string;
-      partnerName: string;
-      current: Decimal;
-      b30: Decimal;
-      b60: Decimal;
-      b90: Decimal;
-      b120: Decimal;
-      older: Decimal;
-      total: Decimal;
-    }>();
+    const partnerMap = new Map<
+      string,
+      {
+        partnerId: string;
+        partnerName: string;
+        current: Decimal;
+        b30: Decimal;
+        b60: Decimal;
+        b90: Decimal;
+        b120: Decimal;
+        older: Decimal;
+        total: Decimal;
+      }
+    >();
 
     for (const inv of invoices) {
-      const daysOverdue = Math.floor((asOf.getTime() - (inv.dueDate ?? inv.date).getTime()) / 86400000);
+      const daysOverdue = Math.floor(
+        (asOf.getTime() - (inv.dueDate ?? inv.date).getTime()) / 86400000,
+      );
       const residual = new Decimal(inv.amountResidual.toString());
       const pid = inv.partnerId;
 
@@ -207,8 +243,12 @@ export class ReportsService {
         partnerMap.set(pid, {
           partnerId: pid,
           partnerName: inv.partner.name,
-          current: new Decimal(0), b30: new Decimal(0), b60: new Decimal(0),
-          b90: new Decimal(0), b120: new Decimal(0), older: new Decimal(0),
+          current: new Decimal(0),
+          b30: new Decimal(0),
+          b60: new Decimal(0),
+          b90: new Decimal(0),
+          b120: new Decimal(0),
+          older: new Decimal(0),
           total: new Decimal(0),
         });
       }
@@ -224,7 +264,9 @@ export class ReportsService {
       else entry.older = entry.older.plus(residual);
     }
 
-    return Array.from(partnerMap.values()).sort((a, b) => a.partnerName.localeCompare(b.partnerName));
+    return Array.from(partnerMap.values()).sort((a, b) =>
+      a.partnerName.localeCompare(b.partnerName),
+    );
   }
 
   async cashFlow(companyId: string, dateFrom: Date, dateTo: Date) {
@@ -244,8 +286,9 @@ export class ReportsService {
       },
       _sum: { debit: true, credit: true },
     });
-    const depreciation = new Decimal(depRows._sum?.debit?.toString() ?? '0')
-      .minus(new Decimal(depRows._sum?.credit?.toString() ?? '0'));
+    const depreciation = new Decimal(
+      depRows._sum?.debit?.toString() ?? '0',
+    ).minus(new Decimal(depRows._sum?.credit?.toString() ?? '0'));
 
     // AR change: sum of AR account lines (code '1200') -- increase in AR = cash outflow
     const arRows = await this.prisma.journalEntryLine.aggregate({
@@ -259,8 +302,9 @@ export class ReportsService {
       },
       _sum: { debit: true, credit: true },
     });
-    const arChange = new Decimal(arRows._sum?.debit?.toString() ?? '0')
-      .minus(new Decimal(arRows._sum?.credit?.toString() ?? '0'));
+    const arChange = new Decimal(arRows._sum?.debit?.toString() ?? '0').minus(
+      new Decimal(arRows._sum?.credit?.toString() ?? '0'),
+    );
 
     // AP change: sum of AP account lines (code '2100') -- increase in AP = cash inflow
     const apRows = await this.prisma.journalEntryLine.aggregate({
@@ -274,10 +318,14 @@ export class ReportsService {
       },
       _sum: { debit: true, credit: true },
     });
-    const apChange = new Decimal(apRows._sum?.credit?.toString() ?? '0')
-      .minus(new Decimal(apRows._sum?.debit?.toString() ?? '0'));
+    const apChange = new Decimal(apRows._sum?.credit?.toString() ?? '0').minus(
+      new Decimal(apRows._sum?.debit?.toString() ?? '0'),
+    );
 
-    const operatingCashFlow = netProfit.plus(depreciation).minus(arChange).plus(apChange);
+    const operatingCashFlow = netProfit
+      .plus(depreciation)
+      .minus(arChange)
+      .plus(apChange);
 
     return {
       netProfit,
@@ -307,10 +355,12 @@ export class ReportsService {
       const accountIds = [...new Set(tg.taxes.map((t) => t.accountId))];
       if (!accountIds.length) continue;
 
-      const avgRate = tg.taxes.reduce(
-        (sum, t) => sum.plus(new Decimal(t.amount.toString())),
-        new Decimal(0),
-      ).div(tg.taxes.length);
+      const avgRate = tg.taxes
+        .reduce(
+          (sum, t) => sum.plus(new Decimal(t.amount.toString())),
+          new Decimal(0),
+        )
+        .div(tg.taxes.length);
 
       const rows = await this.prisma.journalEntryLine.aggregate({
         where: {
@@ -340,13 +390,27 @@ export class ReportsService {
     return results;
   }
 
-  async glByAccount(companyId: string, accountId: string, dateFrom?: Date, dateTo?: Date, page = 1, limit = 50) {
+  async glByAccount(
+    companyId: string,
+    accountId: string,
+    dateFrom?: Date,
+    dateTo?: Date,
+    page = 1,
+    limit = 50,
+  ) {
     const where: any = {
       accountId,
       journalEntry: {
         status: 'POSTED',
         journal: { companyId },
-        ...(dateFrom || dateTo ? { date: { ...(dateFrom && { gte: dateFrom }), ...(dateTo && { lte: dateTo }) } } : {}),
+        ...(dateFrom || dateTo
+          ? {
+              date: {
+                ...(dateFrom && { gte: dateFrom }),
+                ...(dateTo && { lte: dateTo }),
+              },
+            }
+          : {}),
       },
     };
     const [items, total] = await Promise.all([
@@ -354,7 +418,9 @@ export class ReportsService {
         where,
         include: {
           account: { select: { code: true, name: true } },
-          journalEntry: { select: { id: true, ref: true, date: true, status: true } },
+          journalEntry: {
+            select: { id: true, ref: true, date: true, status: true },
+          },
         },
         orderBy: { journalEntry: { date: 'desc' } },
         skip: (page - 1) * limit,

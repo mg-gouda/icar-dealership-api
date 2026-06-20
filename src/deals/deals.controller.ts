@@ -1,5 +1,14 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { DealsService } from './deals.service';
@@ -8,7 +17,10 @@ import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { FieldPolicyEntity, assertFieldWriteAccess } from '../common/field-policies';
+import {
+  FieldPolicyEntity,
+  assertFieldWriteAccess,
+} from '../common/field-policies';
 
 @ApiTags('Deals')
 @ApiBearerAuth()
@@ -23,7 +35,9 @@ export class DealsController {
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   findAll(@Query() q: any, @Request() req: any) {
     const { role, locationId: userLoc } = req.user;
-    const locationId = ['ADMIN', 'SUPER_ADMIN'].includes(role) ? q.locationId : (q.locationId ?? userLoc);
+    const locationId = ['ADMIN', 'SUPER_ADMIN'].includes(role)
+      ? q.locationId
+      : (q.locationId ?? userLoc);
     return this.svc.findAll({ ...q, locationId });
   }
 
@@ -74,7 +88,11 @@ export class DealsController {
 
   @Post(':id/installment-plan')
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  addInstallmentPlan(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+  addInstallmentPlan(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
     return this.svc.addInstallmentPlan(id, body, req.user.id);
   }
 
@@ -94,7 +112,10 @@ export class DealsController {
 
   @Post(':id/finance-application/documents')
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  addDocument(@Param('id') id: string, @Body() body: { documentType: string; fileUrl?: string; notes?: string }) {
+  addDocument(
+    @Param('id') id: string,
+    @Body() body: { documentType: string; fileUrl?: string; notes?: string },
+  ) {
     return this.svc.addDocument(id, body);
   }
 
@@ -128,10 +149,7 @@ export class DealsController {
 
   @Post(':id/installment-plan/lines/:lineId/remind')
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  remindInstallment(
-    @Param('id') id: string,
-    @Param('lineId') lineId: string,
-  ) {
+  remindInstallment(@Param('id') id: string, @Param('lineId') lineId: string) {
     return this.svc.sendInstallmentReminder(id, lineId);
   }
 
@@ -147,7 +165,11 @@ export class DealsController {
 
   @Post(':id/commissions')
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  addCommissionSplit(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+  addCommissionSplit(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
     return this.svc.addCommissionSplit(id, body, req.user.id);
   }
 

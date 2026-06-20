@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -13,7 +18,10 @@ const TWO_FA_ROLES = ['FINANCE', 'ADMIN', 'SUPER_ADMIN'];
 @Injectable()
 export class AuthService {
   // ponytail: in-memory lockout — sufficient for single-process deploy
-  private readonly loginAttempts = new Map<string, { count: number; lockedUntil: Date | null }>();
+  private readonly loginAttempts = new Map<
+    string,
+    { count: number; lockedUntil: Date | null }
+  >();
   private readonly MAX_ATTEMPTS = 5;
   private readonly LOCKOUT_MS = 15 * 60 * 1000; // 15 min
 
@@ -44,7 +52,14 @@ export class AuthService {
     if (!valid) {
       this.recordFailedAttempt(email);
       // Audit login failure (user exists → we have a valid userId for FK)
-      this.audit.log({ entity: 'Auth', entityId: user.id, action: 'LOGIN_FAILED', userId: user.id }).catch(() => {});
+      this.audit
+        .log({
+          entity: 'Auth',
+          entityId: user.id,
+          action: 'LOGIN_FAILED',
+          userId: user.id,
+        })
+        .catch(() => {});
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -54,21 +69,40 @@ export class AuthService {
   }
 
   private async recordFailedAttempt(email: string) {
-    const existing = this.loginAttempts.get(email) ?? { count: 0, lockedUntil: null };
+    const existing = this.loginAttempts.get(email) ?? {
+      count: 0,
+      lockedUntil: null,
+    };
     existing.count += 1;
-    const nowLocked = existing.count >= this.MAX_ATTEMPTS && !existing.lockedUntil;
+    const nowLocked =
+      existing.count >= this.MAX_ATTEMPTS && !existing.lockedUntil;
     if (nowLocked) {
       existing.lockedUntil = new Date(Date.now() + this.LOCKOUT_MS);
       // ponytail: fire-and-forget lockout audit — look up userId to satisfy FK
-      this.prisma.user.findUnique({ where: { email }, select: { id: true } })
-        .then((u) => { if (u) this.audit.log({ entity: 'Auth', entityId: u.id, action: 'ACCOUNT_LOCKED', userId: u.id }); })
+      this.prisma.user
+        .findUnique({ where: { email }, select: { id: true } })
+        .then((u) => {
+          if (u)
+            this.audit.log({
+              entity: 'Auth',
+              entityId: u.id,
+              action: 'ACCOUNT_LOCKED',
+              userId: u.id,
+            });
+        })
         .catch(() => {});
     }
     this.loginAttempts.set(email, existing);
   }
 
-  async login(user: { id: string; email: string; role: string; locationId: string | null; totpSecret: string | null; totpEnabled: boolean }) {
-
+  async login(user: {
+    id: string;
+    email: string;
+    role: string;
+    locationId: string | null;
+    totpSecret: string | null;
+    totpEnabled: boolean;
+  }) {
     // Roles that REQUIRE 2FA: must have enrolled before getting a token
     if (TWO_FA_ROLES.includes(user.role) && !user.totpEnabled) {
       // Return a short-lived pre-auth token so the frontend can drive enrollment
@@ -89,7 +123,14 @@ export class AuthService {
     }
 
     const tokens = this.issueTokens(user);
-    this.audit.log({ entity: 'Auth', entityId: user.id, action: 'LOGIN', userId: user.id }).catch(() => {});
+    this.audit
+      .log({
+        entity: 'Auth',
+        entityId: user.id,
+        action: 'LOGIN',
+        userId: user.id,
+      })
+      .catch(() => {});
     return tokens;
   }
 
@@ -100,31 +141,59 @@ export class AuthService {
     });
     if (user.totpEnabled) throw new BadRequestException('TOTP already enabled');
     const secret = generateSecret();
-    await this.prisma.user.update({ where: { id: userId }, data: { totpSecret: secret } });
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { totpSecret: secret },
+    });
     return { secret, uri: totpUri(secret, user.email) };
   }
 
   async confirmTotp(userId: string, token: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { totpSecret: true, totpEnabled: true, id: true, email: true, role: true, locationId: true },
+      select: {
+        totpSecret: true,
+        totpEnabled: true,
+        id: true,
+        email: true,
+        role: true,
+        locationId: true,
+      },
     });
-    if (!user.totpSecret) throw new BadRequestException('Run /auth/2fa/setup first');
-    if (!verifyTotp(user.totpSecret, token)) throw new UnauthorizedException('Invalid TOTP code');
-    await this.prisma.user.update({ where: { id: userId }, data: { totpEnabled: true } });
-    this.audit.log({ entity: 'Auth', entityId: userId, action: '2FA_SETUP', userId }).catch(() => {});
+    if (!user.totpSecret)
+      throw new BadRequestException('Run /auth/2fa/setup first');
+    if (!verifyTotp(user.totpSecret, token))
+      throw new UnauthorizedException('Invalid TOTP code');
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { totpEnabled: true },
+    });
+    this.audit
+      .log({ entity: 'Auth', entityId: userId, action: '2FA_SETUP', userId })
+      .catch(() => {});
     return this.issueTokens(user);
   }
 
   async verifyTotp(userId: string, token: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { totpSecret: true, totpEnabled: true, id: true, email: true, role: true, locationId: true },
+      select: {
+        totpSecret: true,
+        totpEnabled: true,
+        id: true,
+        email: true,
+        role: true,
+        locationId: true,
+      },
     });
-    if (!user.totpEnabled || !user.totpSecret) throw new ForbiddenException('2FA not configured');
-    if (!verifyTotp(user.totpSecret, token)) throw new UnauthorizedException('Invalid TOTP code');
+    if (!user.totpEnabled || !user.totpSecret)
+      throw new ForbiddenException('2FA not configured');
+    if (!verifyTotp(user.totpSecret, token))
+      throw new UnauthorizedException('Invalid TOTP code');
     const tokens = this.issueTokens(user);
-    this.audit.log({ entity: 'Auth', entityId: userId, action: '2FA_VERIFY', userId }).catch(() => {});
+    this.audit
+      .log({ entity: 'Auth', entityId: userId, action: '2FA_VERIFY', userId })
+      .catch(() => {});
     return tokens;
   }
 
@@ -133,26 +202,54 @@ export class AuthService {
       where: { id: userId },
       select: { totpSecret: true, totpEnabled: true, role: true },
     });
-    if (TWO_FA_ROLES.includes(user.role)) throw new ForbiddenException('Cannot disable 2FA for privileged roles');
-    if (!user.totpEnabled || !user.totpSecret) throw new BadRequestException('2FA not enabled');
-    if (!verifyTotp(user.totpSecret, token)) throw new UnauthorizedException('Invalid TOTP code');
-    await this.prisma.user.update({ where: { id: userId }, data: { totpEnabled: false, totpSecret: null } });
+    if (TWO_FA_ROLES.includes(user.role))
+      throw new ForbiddenException('Cannot disable 2FA for privileged roles');
+    if (!user.totpEnabled || !user.totpSecret)
+      throw new BadRequestException('2FA not enabled');
+    if (!verifyTotp(user.totpSecret, token))
+      throw new UnauthorizedException('Invalid TOTP code');
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { totpEnabled: false, totpSecret: null },
+    });
     return { ok: true };
   }
 
-  private issueTokens(user: { id: string; email: string; role: string; locationId: string | null }) {
-    const payload = { sub: user.id, email: user.email, role: user.role, locationId: user.locationId, companyId: 'company-001' };
+  private issueTokens(user: {
+    id: string;
+    email: string;
+    role: string;
+    locationId: string | null;
+  }) {
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      locationId: user.locationId,
+      companyId: 'company-001',
+    };
     const accessToken = this.jwt.sign(payload);
     const refreshToken = this.jwt.sign(payload, {
       secret: this.config.get<string>('JWT_REFRESH_SECRET'),
       expiresIn: this.config.get<string>('JWT_REFRESH_EXPIRES_IN', '7d') as any,
     });
-    return { accessToken, refreshToken, user: { id: user.id, email: user.email, role: user.role, locationId: user.locationId } };
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        locationId: user.locationId,
+      },
+    };
   }
 
   async refreshToken(token: string) {
     try {
-      const payload = this.jwt.verify(token, { secret: this.config.get<string>('JWT_REFRESH_SECRET') });
+      const payload = this.jwt.verify(token, {
+        secret: this.config.get<string>('JWT_REFRESH_SECRET'),
+      });
       const user = await this.prisma.user.findUniqueOrThrow({
         where: { id: payload.sub },
         select: { id: true, email: true, role: true, locationId: true },
@@ -166,14 +263,27 @@ export class AuthService {
   async me(userId: string) {
     return this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { id: true, name: true, email: true, role: true, locationId: true, totpEnabled: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        locationId: true,
+        totpEnabled: true,
+        createdAt: true,
+      },
     });
   }
 
   // ── Logout ─────────────────────────────────────────────────────────────────
 
   async auditLogout(userId: string) {
-    await this.audit.log({ entity: 'Auth', entityId: userId, action: 'LOGOUT', userId });
+    await this.audit.log({
+      entity: 'Auth',
+      entityId: userId,
+      action: 'LOGOUT',
+      userId,
+    });
   }
 
   // ── Password Reset ─────────────────────────────────────────────────────────
@@ -198,8 +308,11 @@ export class AuthService {
     });
 
     await this.audit.log({
-      entity: 'Auth', entityId: user.id, action: 'PASSWORD_RESET_REQUESTED',
-      userId: user.id, newValue: { resetCode: code },
+      entity: 'Auth',
+      entityId: user.id,
+      action: 'PASSWORD_RESET_REQUESTED',
+      userId: user.id,
+      newValue: { resetCode: code },
     });
 
     // Send email (no-op if SMTP not configured)
@@ -247,7 +360,12 @@ export class AuthService {
     const payload = { sub: user.id, email: user.email, role: user.role };
     return {
       accessToken: this.jwt.sign(payload),
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
     };
   }
 }

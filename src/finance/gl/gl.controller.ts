@@ -1,5 +1,14 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { GlService } from './gl.service';
@@ -30,7 +39,10 @@ export class GlController {
   @Post('accounts')
   @Roles('ADMIN', 'SUPER_ADMIN')
   createAccount(@Body() body: any, @Request() req: any) {
-    return this.svc.createAccount({ ...body, companyId: req.user.companyId }, req.user.id);
+    return this.svc.createAccount(
+      { ...body, companyId: req.user.companyId },
+      req.user.id,
+    );
   }
 
   @Patch('accounts/:id/activate')
@@ -142,7 +154,11 @@ export class GlController {
   @Post('generate-recurring')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   generateRecurring(@Body() body: any, @Request() req: any) {
-    return this.svc.generateRecurring(req.user.companyId, body.date ? new Date(body.date) : new Date(), req.user.id);
+    return this.svc.generateRecurring(
+      req.user.companyId,
+      body.date ? new Date(body.date) : new Date(),
+      req.user.id,
+    );
   }
 
   // Recurring template CRUD

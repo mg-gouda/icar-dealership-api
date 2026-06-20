@@ -1,5 +1,13 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FiscalYearsService } from './fiscal-years.service';
@@ -29,13 +37,25 @@ export class FiscalYearsController {
   @Post()
   @Roles('ADMIN', 'SUPER_ADMIN')
   create(@Body() body: any, @Request() req: any) {
-    return this.svc.create({ ...body, companyId: req.user.companyId }, req.user.id);
+    return this.svc.create(
+      { ...body, companyId: req.user.companyId },
+      req.user.id,
+    );
   }
 
   @Post(':id/periods/generate')
   @Roles('ADMIN', 'SUPER_ADMIN')
-  generatePeriods(@Param('id') id: string, @Body() body: any, @Request() req: any) {
-    return this.svc.generatePeriodsForYear(id, req.user.companyId, body, req.user.id);
+  generatePeriods(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
+    return this.svc.generatePeriodsForYear(
+      id,
+      req.user.companyId,
+      body,
+      req.user.id,
+    );
   }
 
   @Patch(':id')

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -57,7 +61,7 @@ export class AssetsService {
     vendorBillId?: string;
   }) {
     const asset = await this.prisma.asset.create({ data: data as any });
-    const lines = this.computeDepreciationSchedule(asset as any);
+    const lines = this.computeDepreciationSchedule(asset);
 
     await this.prisma.assetDepreciationLine.createMany({
       data: lines.map((l, idx) => ({
@@ -77,7 +81,11 @@ export class AssetsService {
     return this.prisma.asset.update({ where: { id }, data });
   }
 
-  async createFromInvoiceLine(invoiceLineId: string, overrides: Record<string, unknown>, userId: string) {
+  async createFromInvoiceLine(
+    invoiceLineId: string,
+    overrides: Record<string, unknown>,
+    userId: string,
+  ) {
     const line = await this.prisma.invoiceLine.findUniqueOrThrow({
       where: { id: invoiceLineId },
       include: { invoice: { select: { id: true, partnerId: true } } },
@@ -86,19 +94,28 @@ export class AssetsService {
     return this.create({
       name: String(overrides.name ?? line.description ?? 'Asset'),
       assetAccountId: String(overrides.assetAccountId ?? line.accountId),
-      depreciationExpenseAccountId: String(overrides.depreciationExpenseAccountId ?? ''),
+      depreciationExpenseAccountId: String(
+        overrides.depreciationExpenseAccountId ?? '',
+      ),
       accumulatedDepAccountId: String(overrides.accumulatedDepAccountId ?? ''),
       originalValue: Number(overrides.originalValue ?? line.subtotal),
-      salvageValue: overrides.salvageValue != null ? Number(overrides.salvageValue) : 0,
+      salvageValue:
+        overrides.salvageValue != null ? Number(overrides.salvageValue) : 0,
       method: String(overrides.method ?? 'LINEAR'),
       durationMonths: Number(overrides.durationMonths ?? 60),
-      startDate: overrides.startDate ? new Date(String(overrides.startDate)) : new Date(),
+      startDate: overrides.startDate
+        ? new Date(String(overrides.startDate))
+        : new Date(),
       vendorBillId: line.invoiceId,
       ...(overrides as any),
     });
   }
 
-  async postDepreciationLine(assetId: string, lineId: string, journalId: string) {
+  async postDepreciationLine(
+    assetId: string,
+    lineId: string,
+    journalId: string,
+  ) {
     const line = await this.prisma.assetDepreciationLine.findFirst({
       where: { id: lineId, assetId },
       include: { asset: true },
@@ -155,7 +172,12 @@ export class AssetsService {
     const salvage = new Decimal(asset.salvageValue.toString());
     const depreciable = original.minus(salvage);
     const months = asset.durationMonths;
-    const lines: { date: Date; amount: Decimal; accumulated: Decimal; remaining: Decimal }[] = [];
+    const lines: {
+      date: Date;
+      amount: Decimal;
+      accumulated: Decimal;
+      remaining: Decimal;
+    }[] = [];
     let accumulated = new Decimal(0);
 
     for (let i = 0; i < months; i++) {
@@ -164,7 +186,9 @@ export class AssetsService {
 
       let amount: Decimal;
       if (asset.method === 'DECLINING' && asset.decliningRate) {
-        const rate = new Decimal(asset.decliningRate.toString()).div(100).div(12);
+        const rate = new Decimal(asset.decliningRate.toString())
+          .div(100)
+          .div(12);
         const bookValue = original.minus(accumulated);
         amount = bookValue.times(rate).toDecimalPlaces(2);
       } else {
@@ -188,7 +212,12 @@ export class AssetsService {
     return lines;
   }
 
-  async depreciateByMonth(assetId: string, month: string, journalId: string | undefined, userId: string) {
+  async depreciateByMonth(
+    assetId: string,
+    month: string,
+    journalId: string | undefined,
+    userId: string,
+  ) {
     // Find the next unposted line whose date falls within `month` (YYYY-MM)
     const [year, mon] = month.split('-').map(Number);
     const from = new Date(year, mon - 1, 1);
@@ -197,24 +226,39 @@ export class AssetsService {
       where: { assetId, posted: false, date: { gte: from, lte: to } },
       orderBy: { sequence: 'asc' },
     });
-    if (!line) throw new BadRequestException(`No unposted depreciation line for ${month}`);
+    if (!line)
+      throw new BadRequestException(
+        `No unposted depreciation line for ${month}`,
+      );
 
     const journal = journalId
-      ? await this.prisma.journal.findUniqueOrThrow({ where: { id: journalId } })
-      : await this.prisma.journal.findFirstOrThrow({ where: { type: 'GENERAL' } });
+      ? await this.prisma.journal.findUniqueOrThrow({
+          where: { id: journalId },
+        })
+      : await this.prisma.journal.findFirstOrThrow({
+          where: { type: 'GENERAL' },
+        });
 
     return this.postDepreciationLine(assetId, line.id, journal.id);
   }
 
-  async dispose(assetId: string, body: { date: string; proceedsAmount?: number; journalId?: string }, userId: string) {
+  async dispose(
+    assetId: string,
+    body: { date: string; proceedsAmount?: number; journalId?: string },
+    userId: string,
+  ) {
     const asset = await this.getById(assetId);
-    if ((asset as any).state === 'CLOSED') throw new BadRequestException('Asset already closed/disposed');
+    if ((asset as any).state === 'CLOSED')
+      throw new BadRequestException('Asset already closed/disposed');
     const proceeds = new Decimal(body.proceedsAmount ?? 0);
-    const postedLines: Array<{ accumulatedAmount: string | number }> = (asset as any).depreciationLines?.filter((l: any) => l.posted) ?? [];
+    const postedLines: Array<{ accumulatedAmount: string | number }> =
+      (asset as any).depreciationLines?.filter((l: any) => l.posted) ?? [];
     const accumulated = postedLines.length
       ? new Decimal(postedLines[postedLines.length - 1].accumulatedAmount)
       : new Decimal(0);
-    const bookValue = new Decimal((asset as any).originalValue).minus(accumulated);
+    const bookValue = new Decimal((asset as any).originalValue).minus(
+      accumulated,
+    );
     const gainLoss = proceeds.minus(bookValue);
 
     const updated = await this.prisma.asset.update({

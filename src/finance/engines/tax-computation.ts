@@ -1,4 +1,4 @@
-import Decimal from "decimal.js";
+import Decimal from 'decimal.js';
 
 export interface TaxDetail {
   taxId: string;
@@ -59,7 +59,7 @@ export function computeTaxes(
     // First compute the combined factor to extract the base
     let combinedFactor = new Decimal(1);
     for (const tax of sortedTaxes) {
-      if (tax.amountType === "PERCENT") {
+      if (tax.amountType === 'PERCENT') {
         combinedFactor = combinedFactor.plus(new Decimal(tax.amount).div(100));
       }
     }
@@ -115,11 +115,11 @@ function computeSingleTax(base: Decimal, tax: TaxInput): Decimal {
   const rate = new Decimal(tax.amount);
 
   switch (tax.amountType) {
-    case "PERCENT":
+    case 'PERCENT':
       return base.times(rate).div(100);
-    case "FIXED":
+    case 'FIXED':
       return rate;
-    case "DIVISION":
+    case 'DIVISION':
       // Division: price / (1 - rate/100) - price
       return base.div(new Decimal(1).minus(rate.div(100))).minus(base);
     default:

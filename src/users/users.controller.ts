@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -57,7 +68,12 @@ export class UsersController {
     @Body() body: { permissionKey: string; granted?: boolean },
     @Request() req: any,
   ) {
-    return this.usersService.grantPermission(id, body.permissionKey, body.granted ?? true, req.user.id);
+    return this.usersService.grantPermission(
+      id,
+      body.permissionKey,
+      body.granted ?? true,
+      req.user.id,
+    );
   }
 
   @Delete(':id/permissions/:permissionKey')
@@ -82,7 +98,10 @@ export class UsersController {
   @Roles('ADMIN', 'SUPER_ADMIN')
   upsertWorkingHours(
     @Param('id') id: string,
-    @Body() body: { hours: Array<{ dayOfWeek: number; startTime: string; endTime: string }> },
+    @Body()
+    body: {
+      hours: Array<{ dayOfWeek: number; startTime: string; endTime: string }>;
+    },
   ) {
     return this.usersService.upsertWorkingHours(id, body.hours);
   }

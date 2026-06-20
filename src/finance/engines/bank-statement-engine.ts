@@ -5,9 +5,9 @@
  * computes balance, and parses CSV bank statement imports.
  */
 
-import Decimal from "decimal.js";
+import Decimal from 'decimal.js';
 
-import type { ComputedLine } from "./move-engine";
+import type { ComputedLine } from './move-engine';
 
 // ── Types ──
 
@@ -57,7 +57,7 @@ export function buildStatementMoveLines(
       accountId: bankAccountId,
       partnerId: line.partnerId,
       name: line.name,
-      displayType: "PRODUCT",
+      displayType: 'PRODUCT',
       debit: isDeposit ? absAmount : new Decimal(0),
       credit: isDeposit ? new Decimal(0) : absAmount,
       balance: isDeposit ? absAmount : absAmount.neg(),
@@ -77,7 +77,7 @@ export function buildStatementMoveLines(
       accountId: suspenseAccountId,
       partnerId: line.partnerId,
       name: line.name,
-      displayType: "PRODUCT",
+      displayType: 'PRODUCT',
       debit: isDeposit ? new Decimal(0) : absAmount,
       credit: isDeposit ? absAmount : new Decimal(0),
       balance: isDeposit ? absAmount.neg() : absAmount,
@@ -118,14 +118,16 @@ export function computeBalanceEnd(
  *
  * Throws with row-specific errors for invalid data.
  */
-export function parseCSVStatementLines(csvContent: string): ParsedStatementLine[] {
+export function parseCSVStatementLines(
+  csvContent: string,
+): ParsedStatementLine[] {
   const lines = csvContent
-    .split("\n")
+    .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
   if (lines.length < 2) {
-    throw new Error("CSV must contain a header row and at least one data row");
+    throw new Error('CSV must contain a header row and at least one data row');
   }
 
   // Skip header row
@@ -141,7 +143,9 @@ export function parseCSVStatementLines(csvContent: string): ParsedStatementLine[
     const fields = parseCSVRow(row);
 
     if (fields.length < 3) {
-      errors.push(`Row ${rowNum}: expected at least 3 columns (date, description, amount), got ${fields.length}`);
+      errors.push(
+        `Row ${rowNum}: expected at least 3 columns (date, description, amount), got ${fields.length}`,
+      );
       continue;
     }
 
@@ -175,7 +179,7 @@ export function parseCSVStatementLines(csvContent: string): ParsedStatementLine[
   }
 
   if (errors.length > 0) {
-    throw new Error(`CSV parsing errors:\n${errors.join("\n")}`);
+    throw new Error(`CSV parsing errors:\n${errors.join('\n')}`);
   }
 
   return results;
@@ -186,7 +190,7 @@ export function parseCSVStatementLines(csvContent: string): ParsedStatementLine[
  */
 function parseCSVRow(row: string): string[] {
   const fields: string[] = [];
-  let current = "";
+  let current = '';
   let inQuotes = false;
 
   for (let i = 0; i < row.length; i++) {
@@ -206,9 +210,9 @@ function parseCSVRow(row: string): string[] {
     } else {
       if (char === '"') {
         inQuotes = true;
-      } else if (char === ",") {
+      } else if (char === ',') {
         fields.push(current);
-        current = "";
+        current = '';
       } else {
         current += char;
       }

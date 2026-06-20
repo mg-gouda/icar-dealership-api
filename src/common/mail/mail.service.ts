@@ -25,9 +25,14 @@ export class MailService {
     return this.transporter;
   }
 
-  async send(opts: { to: string; subject: string; html: string; from?: string }) {
+  async send(opts: {
+    to: string;
+    subject: string;
+    html: string;
+    from?: string;
+  }) {
     const transport = this.getTransporter();
-    const from = opts.from ?? (process.env.SMTP_FROM ?? 'noreply@icaregypt.com');
+    const from = opts.from ?? process.env.SMTP_FROM ?? 'noreply@icaregypt.com';
     if (!transport) {
       this.logger.log(`[EMAIL STUB] To: ${opts.to} | Subject: ${opts.subject}`);
       return;
@@ -45,7 +50,13 @@ export class MailService {
     });
   }
 
-  async sendAppointmentReminder(to: string, name: string, date: string, time: string, location: string) {
+  async sendAppointmentReminder(
+    to: string,
+    name: string,
+    date: string,
+    time: string,
+    location: string,
+  ) {
     await this.send({
       to,
       subject: 'Appointment Reminder — iCar Dealership',
@@ -53,8 +64,18 @@ export class MailService {
     });
   }
 
-  async sendInvoiceEmail(to: string, invoiceRef: string, amount: number, dueDate: string) {
-    const fmt = (n: number) => n.toLocaleString('en-EG', { style: 'currency', currency: 'EGP', maximumFractionDigits: 0 });
+  async sendInvoiceEmail(
+    to: string,
+    invoiceRef: string,
+    amount: number,
+    dueDate: string,
+  ) {
+    const fmt = (n: number) =>
+      n.toLocaleString('en-EG', {
+        style: 'currency',
+        currency: 'EGP',
+        maximumFractionDigits: 0,
+      });
     await this.send({
       to,
       subject: `Invoice #${invoiceRef} — iCar Dealership`,
@@ -62,7 +83,12 @@ export class MailService {
     });
   }
 
-  async sendDealStatusUpdate(to: string, name: string, status: string, vehicleDesc: string) {
+  async sendDealStatusUpdate(
+    to: string,
+    name: string,
+    status: string,
+    vehicleDesc: string,
+  ) {
     await this.send({
       to,
       subject: 'Your Deal Status Has Been Updated — iCar',

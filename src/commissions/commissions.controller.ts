@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -29,8 +39,11 @@ export class CommissionsController {
     const effectiveUserId =
       req?.user?.role === 'SALES_REP' ? req.user.sub : userId;
     return this.svc.list({
-      status, userId: effectiveUserId, dealId,
-      page: Number(page), limit: Number(limit),
+      status,
+      userId: effectiveUserId,
+      dealId,
+      page: Number(page),
+      limit: Number(limit),
     });
   }
 
@@ -76,7 +89,13 @@ export class CommissionsController {
   @Post('pay')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   payAlias(
-    @Body() body: { commissionIds: string[]; journalId: string; paymentMethod?: string; reference?: string },
+    @Body()
+    body: {
+      commissionIds: string[];
+      journalId: string;
+      paymentMethod?: string;
+      reference?: string;
+    },
     @Req() req: any,
   ) {
     return this.svc.batchPay(body.commissionIds, body.journalId, req.user.sub);

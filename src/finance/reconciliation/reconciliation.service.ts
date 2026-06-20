@@ -5,15 +5,25 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 export class ReconciliationService {
   constructor(private prisma: PrismaService) {}
 
-  async getUnreconciledLines(companyId: string, query: {
-    journalId?: string;
-    accountId?: string;
-    dateFrom?: Date;
-    dateTo?: Date;
-    page?: number;
-    limit?: number;
-  }) {
-    const { journalId, accountId, dateFrom, dateTo, page = 1, limit = 50 } = query;
+  async getUnreconciledLines(
+    companyId: string,
+    query: {
+      journalId?: string;
+      accountId?: string;
+      dateFrom?: Date;
+      dateTo?: Date;
+      page?: number;
+      limit?: number;
+    },
+  ) {
+    const {
+      journalId,
+      accountId,
+      dateFrom,
+      dateTo,
+      page = 1,
+      limit = 50,
+    } = query;
     const where: any = {
       reconciled: false,
       journalEntry: {
@@ -50,7 +60,13 @@ export class ReconciliationService {
     return { items, total, page, limit };
   }
 
-  async reconcile(pairs: { bankStatementLineId: string; journalEntryLineId: string; amount: number }[]) {
+  async reconcile(
+    pairs: {
+      bankStatementLineId: string;
+      journalEntryLineId: string;
+      amount: number;
+    }[],
+  ) {
     const results: { id: string }[] = [];
 
     await this.prisma.$transaction(async (tx) => {
@@ -126,7 +142,10 @@ export class ReconciliationService {
     const matches = candidates.filter((jel) => {
       const jelDebit = Number(jel.debit);
       const jelCredit = Number(jel.credit);
-      return Math.abs(jelDebit - bsAmount) < 0.01 || Math.abs(jelCredit - bsAmount) < 0.01;
+      return (
+        Math.abs(jelDebit - bsAmount) < 0.01 ||
+        Math.abs(jelCredit - bsAmount) < 0.01
+      );
     });
 
     // Sort by date proximity, take top 5
@@ -160,7 +179,12 @@ export class ReconciliationService {
     return { deleted: true };
   }
 
-  async completeReconciliation(accountId: string, month: string, endingBalance: number, userId: string) {
+  async completeReconciliation(
+    accountId: string,
+    month: string,
+    endingBalance: number,
+    userId: string,
+  ) {
     const [year, mon] = month.split('-').map(Number);
     const from = new Date(year, mon - 1, 1);
     const to = new Date(year, mon, 0, 23, 59, 59);
@@ -170,13 +194,20 @@ export class ReconciliationService {
       include: { lines: { select: { reconciled: true } } },
     });
 
-    const allReconciled = statements.every(s => s.lines.every(l => l.reconciled));
+    const allReconciled = statements.every((s) =>
+      s.lines.every((l) => l.reconciled),
+    );
     const result = await this.prisma.bankStatement.updateMany({
       where: { bankAccountId: accountId, endDate: { gte: from, lte: to } },
       data: { endingBalance },
     });
 
-    return { completed: true, statements: result.count, allLinesReconciled: allReconciled, endingBalance };
+    return {
+      completed: true,
+      statements: result.count,
+      allLinesReconciled: allReconciled,
+      endingBalance,
+    };
   }
 
   // ponytail: inline "Create Entry" for unmatched bank lines (fees, interest)
@@ -193,7 +224,8 @@ export class ReconciliationService {
     const bsl = await this.prisma.bankStatementLine.findUniqueOrThrow({
       where: { id: dto.bankStatementLineId },
     });
-    if (bsl.reconciled) throw new BadRequestException('Line already reconciled');
+    if (bsl.reconciled)
+      throw new BadRequestException('Line already reconciled');
 
     const result = await this.prisma.$transaction(async (tx) => {
       const je = await tx.journalEntry.create({
@@ -226,10 +258,20 @@ export class ReconciliationService {
       });
 
       const rec = await tx.reconciliation.create({
-        data: { bankStatementLineId: dto.bankStatementLineId, journalEntryLineId: expenseLine.id, amount: Math.abs(dto.amount) },
+        data: {
+          bankStatementLineId: dto.bankStatementLineId,
+          journalEntryLineId: expenseLine.id,
+          amount: Math.abs(dto.amount),
+        },
       });
-      await tx.bankStatementLine.update({ where: { id: dto.bankStatementLineId }, data: { reconciled: true } });
-      await tx.journalEntryLine.update({ where: { id: expenseLine.id }, data: { reconciled: true, matchingNumber: rec.id } });
+      await tx.bankStatementLine.update({
+        where: { id: dto.bankStatementLineId },
+        data: { reconciled: true },
+      });
+      await tx.journalEntryLine.update({
+        where: { id: expenseLine.id },
+        data: { reconciled: true, matchingNumber: rec.id },
+      });
       return { journalEntryId: je.id, reconciliationId: rec.id };
     });
 

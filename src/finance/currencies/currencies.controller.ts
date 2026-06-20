@@ -1,5 +1,14 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrenciesService } from './currencies.service';
@@ -34,7 +43,11 @@ export class CurrenciesController {
 
   @Patch(':id/toggle-active')
   @Roles('ADMIN', 'SUPER_ADMIN')
-  toggleActive(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+  toggleActive(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
     return this.svc.toggleActive(id, body.active, req.user.id);
   }
 
@@ -48,19 +61,30 @@ export class CurrenciesController {
 
   @Get(':currencyId/rates/at')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  getRate(@Param('currencyId') currencyId: string, @Query('date') date: string) {
+  getRate(
+    @Param('currencyId') currencyId: string,
+    @Query('date') date: string,
+  ) {
     return this.svc.getRate(currencyId, date);
   }
 
   @Post(':currencyId/rates')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  upsertRate(@Param('currencyId') currencyId: string, @Body() body: any, @Request() req: any) {
+  upsertRate(
+    @Param('currencyId') currencyId: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
     return this.svc.upsertRate({ ...body, currencyId }, req.user.id);
   }
 
   @Post(':currencyId/rates/import')
   @Roles('ADMIN', 'SUPER_ADMIN')
-  importRates(@Param('currencyId') currencyId: string, @Body() body: any, @Request() req: any) {
+  importRates(
+    @Param('currencyId') currencyId: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
     return this.svc.importRates({ ...body, currencyId }, req.user.id);
   }
 

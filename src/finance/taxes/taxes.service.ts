@@ -37,37 +37,53 @@ export class TaxesService {
     return tax;
   }
 
-  async createTax(data: {
-    name: string;
-    amount: number;
-    computation?: string;
-    scope?: string;
-    includedInPrice?: boolean;
-    taxGroupId?: string;
-    accountId: string;
-  }, userId: string) {
+  async createTax(
+    data: {
+      name: string;
+      amount: number;
+      computation?: string;
+      scope?: string;
+      includedInPrice?: boolean;
+      taxGroupId?: string;
+      accountId: string;
+    },
+    userId: string,
+  ) {
     const tax = await this.prisma.tax.create({ data: data as any });
     await this.audit.log({
-      userId, action: 'CREATE', entity: 'Tax', entityId: tax.id,
+      userId,
+      action: 'CREATE',
+      entity: 'Tax',
+      entityId: tax.id,
     });
     return tax;
   }
 
-  async updateTax(id: string, data: {
-    name?: string;
-    amount?: number;
-    computation?: string;
-    scope?: string;
-    includedInPrice?: boolean;
-    taxGroupId?: string | null;
-    accountId?: string;
-  }, userId: string) {
+  async updateTax(
+    id: string,
+    data: {
+      name?: string;
+      amount?: number;
+      computation?: string;
+      scope?: string;
+      includedInPrice?: boolean;
+      taxGroupId?: string | null;
+      accountId?: string;
+    },
+    userId: string,
+  ) {
     const tax = await this.prisma.tax.findUnique({ where: { id } });
     if (!tax) throw new NotFoundException('Tax not found');
 
-    const updated = await this.prisma.tax.update({ where: { id }, data: data as any });
+    const updated = await this.prisma.tax.update({
+      where: { id },
+      data: data as any,
+    });
     await this.audit.log({
-      userId, action: 'UPDATE', entity: 'Tax', entityId: id,
+      userId,
+      action: 'UPDATE',
+      entity: 'Tax',
+      entityId: id,
       changes: { before: tax, after: updated },
     });
     return updated;
@@ -79,7 +95,10 @@ export class TaxesService {
 
     await this.prisma.tax.delete({ where: { id } });
     await this.audit.log({
-      userId, action: 'DELETE', entity: 'Tax', entityId: id,
+      userId,
+      action: 'DELETE',
+      entity: 'Tax',
+      entityId: id,
     });
     return { deleted: true };
   }
@@ -96,7 +115,10 @@ export class TaxesService {
   async createGroup(data: { name: string }, userId: string) {
     const group = await this.prisma.taxGroup.create({ data });
     await this.audit.log({
-      userId, action: 'CREATE', entity: 'TaxGroup', entityId: group.id,
+      userId,
+      action: 'CREATE',
+      entity: 'TaxGroup',
+      entityId: group.id,
     });
     return group;
   }
@@ -107,7 +129,10 @@ export class TaxesService {
 
     const updated = await this.prisma.taxGroup.update({ where: { id }, data });
     await this.audit.log({
-      userId, action: 'UPDATE', entity: 'TaxGroup', entityId: id,
+      userId,
+      action: 'UPDATE',
+      entity: 'TaxGroup',
+      entityId: id,
     });
     return updated;
   }
@@ -118,7 +143,10 @@ export class TaxesService {
 
     await this.prisma.taxGroup.delete({ where: { id } });
     await this.audit.log({
-      userId, action: 'DELETE', entity: 'TaxGroup', entityId: id,
+      userId,
+      action: 'DELETE',
+      entity: 'TaxGroup',
+      entityId: id,
     });
     return { deleted: true };
   }

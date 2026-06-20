@@ -1,5 +1,8 @@
 import {
-  Injectable, NotFoundException, BadRequestException, ForbiddenException,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -15,28 +18,44 @@ export class DealsService {
     private mail: MailService,
   ) {}
 
-  findAll(query: {
-    locationId?: string; status?: string; purchaseMethod?: string;
-    salesRepId?: string; page?: number; limit?: number;
+  async findAll(query: {
+    locationId?: string;
+    status?: string;
+    purchaseMethod?: string;
+    salesRepId?: string;
+    page?: number;
+    limit?: number;
   }) {
-    const { locationId, status, purchaseMethod, salesRepId, page = 1, limit = 20 } = query;
-    return this.prisma.deal.findMany({
-      where: {
-        ...(locationId && { locationId }),
-        ...(status && { status: status as any }),
-        ...(purchaseMethod && { purchaseMethod: purchaseMethod as any }),
-        ...(salesRepId && { salesRepId }),
-      },
-      include: {
-        vehicle: { select: { id: true, make: true, model: true, year: true, price: true } },
-        customer: { select: { id: true, name: true, phone: true, email: true } },
-        salesRep: { select: { id: true, name: true } },
-        location: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      skip: (Number(page) - 1) * Number(limit),
-      take: Number(limit),
-    });
+    const {
+      locationId,
+      status,
+      purchaseMethod,
+      salesRepId,
+      page = 1,
+      limit = 20,
+    } = query;
+    const where = {
+      ...(locationId && { locationId }),
+      ...(status && { status: status as any }),
+      ...(purchaseMethod && { purchaseMethod: purchaseMethod as any }),
+      ...(salesRepId && { salesRepId }),
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.deal.findMany({
+        where,
+        include: {
+          vehicle: { select: { id: true, make: true, model: true, year: true, price: true } },
+          customer: { select: { id: true, name: true, phone: true, email: true } },
+          salesRep: { select: { id: true, name: true } },
+          location: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (Number(page) - 1) * Number(limit),
+        take: Number(limit),
+      }),
+      this.prisma.deal.count({ where }),
+    ]);
+    return { data, total, page: Number(page), limit: Number(limit) };
   }
 
   async findById(id: string) {
@@ -47,32 +66,62 @@ export class DealsService {
         customer: true,
         salesRep: { select: { id: true, name: true } },
         location: true,
-        installmentPlan: { include: { installments: { orderBy: { dueDate: 'asc' } } } },
-        financeApplication: { include: { requiredDocuments: true, bankApproval: true } },
-        commissions: { include: { user: { select: { id: true, name: true } } } },
-        invoices: { select: { id: true, status: true, amountTotal: true, dueDate: true } },
+        installmentPlan: {
+          include: { installments: { orderBy: { dueDate: 'asc' } } },
+        },
+        financeApplication: {
+          include: { requiredDocuments: true, bankApproval: true },
+        },
+        commissions: {
+          include: { user: { select: { id: true, name: true } } },
+        },
+        invoices: {
+          select: { id: true, status: true, amountTotal: true, dueDate: true },
+        },
       },
     });
     if (!deal) throw new NotFoundException(`Deal ${id} not found`);
     return deal;
   }
 
-  async create(data: {
-    locationId: string; vehicleId: string; customerId: string; salesRepId: string;
-    purchaseMethod: string; salePrice: number; adminFee?: number; insuranceFee?: number;
-    leadId?: string;
-    tradeInMake?: string; tradeInModel?: string; tradeInYear?: number; tradeInValue?: number;
-  }, userId: string) {
+  async create(
+    data: {
+      locationId: string;
+      vehicleId: string;
+      customerId: string;
+      salesRepId: string;
+      purchaseMethod: string;
+      salePrice: number;
+      adminFee?: number;
+      insuranceFee?: number;
+      leadId?: string;
+      tradeInMake?: string;
+      tradeInModel?: string;
+      tradeInYear?: number;
+      tradeInValue?: number;
+    },
+    userId: string,
+  ) {
     // vehicle must be AVAILABLE
-    const vehicle = await this.prisma.vehicle.findUniqueOrThrow({ where: { id: data.vehicleId } });
+    const vehicle = await this.prisma.vehicle.findUniqueOrThrow({
+      where: { id: data.vehicleId },
+    });
     if (vehicle.status !== 'AVAILABLE') {
-      throw new BadRequestException(`Vehicle ${data.vehicleId} is not available (status: ${vehicle.status})`);
+      throw new BadRequestException(
+        `Vehicle ${data.vehicleId} is not available (status: ${vehicle.status})`,
+      );
     }
 
     // Fee cascade: explicit value → vehicle override → location default
-    const location = await this.prisma.location.findUniqueOrThrow({ where: { id: data.locationId } });
-    const adminFee = data.adminFee ?? Number(vehicle.adminFeeOverride ?? location.defaultAdminFee ?? 0);
-    const insuranceFee = data.insuranceFee ?? Number(vehicle.insuranceFeeOverride ?? location.defaultInsuranceFee ?? 0);
+    const location = await this.prisma.location.findUniqueOrThrow({
+      where: { id: data.locationId },
+    });
+    const adminFee =
+      data.adminFee ??
+      Number(vehicle.adminFeeOverride ?? location.defaultAdminFee ?? 0);
+    const insuranceFee =
+      data.insuranceFee ??
+      Number(vehicle.insuranceFeeOverride ?? location.defaultInsuranceFee ?? 0);
 
     const deal = await this.prisma.$transaction(async (tx) => {
       const d = await tx.deal.create({
@@ -94,54 +143,112 @@ export class DealsService {
         },
       });
       // mark vehicle RESERVED while deal is open
-      await tx.vehicle.update({ where: { id: data.vehicleId }, data: { status: 'RESERVED' } });
+      await tx.vehicle.update({
+        where: { id: data.vehicleId },
+        data: { status: 'RESERVED' },
+      });
       return d;
     });
 
-    await this.audit.log({ entity: 'Deal', entityId: deal.id, action: 'CREATE', userId, newValue: deal });
+    await this.audit.log({
+      entity: 'Deal',
+      entityId: deal.id,
+      action: 'CREATE',
+      userId,
+      newValue: deal,
+    });
     return deal;
   }
 
-  async update(id: string, data: Partial<{
-    salePrice: number; adminFee: number; insuranceFee: number;
-    salesRepId: string; purchaseMethod: string;
-    tradeInMake: string; tradeInModel: string; tradeInYear: number; tradeInValue: number;
-  }>, userId: string) {
+  async update(
+    id: string,
+    data: Partial<{
+      salePrice: number;
+      adminFee: number;
+      insuranceFee: number;
+      salesRepId: string;
+      purchaseMethod: string;
+      tradeInMake: string;
+      tradeInModel: string;
+      tradeInYear: number;
+      tradeInValue: number;
+    }>,
+    userId: string,
+  ) {
     const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id } });
-    if (deal.status === 'FINALIZED') throw new BadRequestException('Cannot edit a finalized deal');
-    if (deal.status !== 'DRAFT' && data.purchaseMethod && data.purchaseMethod !== deal.purchaseMethod) {
-      throw new BadRequestException('Purchase method cannot be changed after deal leaves DRAFT status');
+    if (deal.status === 'FINALIZED')
+      throw new BadRequestException('Cannot edit a finalized deal');
+    if (
+      deal.status !== 'DRAFT' &&
+      data.purchaseMethod &&
+      data.purchaseMethod !== deal.purchaseMethod
+    ) {
+      throw new BadRequestException(
+        'Purchase method cannot be changed after deal leaves DRAFT status',
+      );
     }
 
     // Fee bounds — role comes from the controller via userId lookup or passed explicitly
     // ponytail: userId is passed; look up the user's role for bounds check
-    const actor = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { role: true } });
-    await this.assertFeeBounds(deal.locationId, actor.role, data.adminFee, data.insuranceFee);
+    const actor = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { role: true },
+    });
+    await this.assertFeeBounds(
+      deal.locationId,
+      actor.role,
+      data.adminFee,
+      data.insuranceFee,
+    );
 
-    const updated = await this.prisma.deal.update({ where: { id }, data: data as any });
-    await this.audit.log({ entity: 'Deal', entityId: id, action: 'UPDATE', userId, newValue: data });
+    const updated = await this.prisma.deal.update({
+      where: { id },
+      data: data as any,
+    });
+    await this.audit.log({
+      entity: 'Deal',
+      entityId: id,
+      action: 'UPDATE',
+      userId,
+      newValue: data,
+    });
     return updated;
   }
 
   async finalize(id: string, userId: string) {
     const deal = await this.prisma.deal.findUniqueOrThrow({
       where: { id },
-      include: { vehicle: true, location: true, financeApplication: { include: { bankApproval: true } } },
+      include: {
+        vehicle: true,
+        location: true,
+        financeApplication: { include: { bankApproval: true } },
+      },
     });
     if (deal.status !== 'DRAFT' && deal.status !== 'PENDING_FINANCE') {
-      throw new BadRequestException(`Deal ${id} is not in a finalizable state (status: ${deal.status})`);
+      throw new BadRequestException(
+        `Deal ${id} is not in a finalizable state (status: ${deal.status})`,
+      );
     }
     if (deal.purchaseMethod === 'BANK_FINANCING') {
-      if ((deal as any).bankFinancingStatus !== 'APPROVED' || !(deal as any).financeApplication?.bankApproval) {
-        throw new BadRequestException('Bank financing deals require an approved bank approval before finalizing.');
+      if (
+        (deal as any).bankFinancingStatus !== 'APPROVED' ||
+        !(deal as any).financeApplication?.bankApproval
+      ) {
+        throw new BadRequestException(
+          'Bank financing deals require an approved bank approval before finalizing.',
+        );
       }
     }
 
-    await this.prisma.$transaction(async () => {
-      await this.posting.finalizeDeal(id, userId);
-    });
+    // ponytail: posting.finalizeDeal is already atomic — outer $transaction was a no-op
+    await this.posting.finalizeDeal(id, userId);
 
-    await this.audit.log({ entity: 'Deal', entityId: id, action: 'FINALIZE', userId });
+    await this.audit.log({
+      entity: 'Deal',
+      entityId: id,
+      action: 'FINALIZE',
+      userId,
+    });
 
     // Email customer about finalized deal (fire-and-forget)
     const finalized = await this.findById(id);
@@ -149,7 +256,9 @@ export class DealsService {
     if (cust?.email) {
       const v = (finalized as any).vehicle;
       const vehicleDesc = v ? `${v.year} ${v.make} ${v.model}` : 'vehicle';
-      this.mail.sendDealStatusUpdate(cust.email, cust.name, 'FINALIZED', vehicleDesc).catch(() => undefined);
+      this.mail
+        .sendDealStatusUpdate(cust.email, cust.name, 'FINALIZED', vehicleDesc)
+        .catch(() => undefined);
     }
 
     return finalized;
@@ -157,36 +266,62 @@ export class DealsService {
 
   async cancel(id: string, userId: string) {
     const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id } });
-    if (deal.status === 'FINALIZED') throw new ForbiddenException('Cannot cancel a finalized deal');
+    if (deal.status === 'FINALIZED')
+      throw new ForbiddenException('Cannot cancel a finalized deal');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.deal.update({ where: { id }, data: { status: 'CANCELLED' } });
       // release vehicle back to AVAILABLE
-      await tx.vehicle.update({ where: { id: deal.vehicleId }, data: { status: 'AVAILABLE' } });
+      await tx.vehicle.update({
+        where: { id: deal.vehicleId },
+        data: { status: 'AVAILABLE' },
+      });
 
       // ponytail: commission clawback -- reverse any ACCRUED/PAYABLE commissions
       await this.posting.clawbackCommissions(id, userId, tx);
     });
 
-    await this.audit.log({ entity: 'Deal', entityId: id, action: 'CANCEL', userId });
+    await this.audit.log({
+      entity: 'Deal',
+      entityId: id,
+      action: 'CANCEL',
+      userId,
+    });
     return this.findById(id);
   }
 
-  async addInstallmentPlan(dealId: string, data: {
-    principalAmount: number; downPayment: number; interestRate: number;
-    durationMonths: number; calculationMethod: string;
-    totalPayable: number; monthlyInstallment?: number; startDate: Date;
-  }, userId: string) {
-    const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id: dealId } });
+  async addInstallmentPlan(
+    dealId: string,
+    data: {
+      principalAmount: number;
+      downPayment: number;
+      interestRate: number;
+      durationMonths: number;
+      calculationMethod: string;
+      totalPayable: number;
+      monthlyInstallment?: number;
+      startDate: Date;
+    },
+    userId: string,
+  ) {
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id: dealId },
+    });
     if (deal.purchaseMethod !== 'DEALERSHIP_INSTALLMENT') {
-      throw new BadRequestException('Deal purchase method is not DEALERSHIP_INSTALLMENT');
+      throw new BadRequestException(
+        'Deal purchase method is not DEALERSHIP_INSTALLMENT',
+      );
     }
 
     // Generate installment lines
     const lines: Array<{
-      installmentNumber: number; dueDate: Date;
-      principalPortion: number; interestPortion: number; totalDue: number;
-      status: 'PENDING'; paidAmount: number;
+      installmentNumber: number;
+      dueDate: Date;
+      principalPortion: number;
+      interestPortion: number;
+      totalDue: number;
+      status: 'PENDING';
+      paidAmount: number;
     }> = [];
 
     const principal = data.principalAmount;
@@ -195,12 +330,14 @@ export class DealsService {
 
     if (data.calculationMethod === 'AMORTIZING' && monthlyRate > 0) {
       // ponytail: reducing-balance PMT formula
-      const pmt = (principal * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -n));
+      const pmt =
+        (principal * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -n));
       let balance = principal;
 
       for (let i = 0; i < n; i++) {
         const interestPortion = Math.round(balance * monthlyRate * 100) / 100;
-        const principalPortion = Math.round((pmt - interestPortion) * 100) / 100;
+        const principalPortion =
+          Math.round((pmt - interestPortion) * 100) / 100;
         const dueDate = new Date(data.startDate);
         dueDate.setMonth(dueDate.getMonth() + i);
         lines.push({
@@ -208,7 +345,8 @@ export class DealsService {
           dueDate,
           principalPortion,
           interestPortion,
-          totalDue: Math.round((principalPortion + interestPortion) * 100) / 100,
+          totalDue:
+            Math.round((principalPortion + interestPortion) * 100) / 100,
           status: 'PENDING',
           paidAmount: 0,
         });
@@ -244,9 +382,10 @@ export class DealsService {
 
     // ponytail: compute totals from generated lines for accuracy
     const computedTotal = lines.reduce((s, l) => s + l.totalDue, 0);
-    const computedMonthly = data.calculationMethod === 'AMORTIZING'
-      ? undefined // varies per line
-      : (lines[0]?.totalDue ?? 0);
+    const computedMonthly =
+      data.calculationMethod === 'AMORTIZING'
+        ? undefined // varies per line
+        : (lines[0]?.totalDue ?? 0);
 
     const plan = await this.prisma.installmentPlan.create({
       data: {
@@ -266,7 +405,13 @@ export class DealsService {
       },
       include: { installments: true },
     });
-    await this.audit.log({ entity: 'InstallmentPlan', entityId: plan.id, action: 'CREATE', userId, newValue: plan });
+    await this.audit.log({
+      entity: 'InstallmentPlan',
+      entityId: plan.id,
+      action: 'CREATE',
+      userId,
+      newValue: plan,
+    });
     return plan;
   }
 
@@ -279,13 +424,20 @@ export class DealsService {
       include: { installmentPlan: true },
     });
     if (line.installmentPlan.dealId !== dealId) {
-      throw new BadRequestException('Installment line does not belong to this deal');
+      throw new BadRequestException(
+        'Installment line does not belong to this deal',
+      );
     }
     if (line.status === 'PAID') {
       throw new BadRequestException('Installment line already paid');
     }
     await this.posting.postInstallment(lineId, userId);
-    await this.audit.log({ entity: 'InstallmentLine', entityId: lineId, action: 'COLLECT', userId });
+    await this.audit.log({
+      entity: 'InstallmentLine',
+      entityId: lineId,
+      action: 'COLLECT',
+      userId,
+    });
     return this.findById(dealId);
   }
 
@@ -295,23 +447,31 @@ export class DealsService {
       include: {
         installmentPlan: {
           include: {
-            deal: { include: { customer: { select: { email: true, name: true } } } },
+            deal: {
+              include: { customer: { select: { email: true, name: true } } },
+            },
           },
         },
       },
     });
     if (line.installmentPlan.dealId !== dealId) {
-      throw new BadRequestException('Installment line does not belong to this deal');
+      throw new BadRequestException(
+        'Installment line does not belong to this deal',
+      );
     }
     const customer = line.installmentPlan.deal.customer;
     if (customer?.email) {
-      this.mail.send({
-        to: customer.email,
-        subject: 'Installment Payment Reminder',
-        html: `<p>Dear ${customer.name ?? 'Customer'},</p>
+      this.mail
+        .send({
+          to: customer.email,
+          subject: 'Installment Payment Reminder',
+          html: `<p>Dear ${customer.name ?? 'Customer'},</p>
 <p>This is a reminder that your installment payment of <strong>${Number(line.totalDue).toLocaleString()} EGP</strong> was due on <strong>${new Date(line.dueDate).toLocaleDateString('en-EG')}</strong>.</p>
 <p>Please arrange payment at your earliest convenience.</p>`,
-      }).catch(() => {/* non-critical */});
+        })
+        .catch(() => {
+          /* non-critical */
+        });
     }
     return { sent: !!customer?.email };
   }
@@ -319,24 +479,37 @@ export class DealsService {
   // ── Bank disbursement ─────────────────────────────────────────────────────
 
   async postBankDisbursement(dealId: string, userId: string) {
-    const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id: dealId } });
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id: dealId },
+    });
     if (deal.purchaseMethod !== 'BANK_FINANCING') {
       throw new BadRequestException('Deal is not BANK_FINANCING');
     }
     if (deal.status !== 'FINALIZED') {
-      throw new BadRequestException('Deal must be FINALIZED before recording disbursement');
+      throw new BadRequestException(
+        'Deal must be FINALIZED before recording disbursement',
+      );
     }
     await this.posting.postBankDisbursement(dealId, userId);
-    await this.audit.log({ entity: 'Deal', entityId: dealId, action: 'BANK_DISBURSEMENT', userId });
+    await this.audit.log({
+      entity: 'Deal',
+      entityId: dealId,
+      action: 'BANK_DISBURSEMENT',
+      userId,
+    });
     return this.findById(dealId);
   }
 
   // ── Finance Application ────────────────────────────────────────────────────
 
   async createFinanceApplication(dealId: string, data: any) {
-    const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id: dealId } });
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id: dealId },
+    });
     if (deal.purchaseMethod !== 'BANK_FINANCING') {
-      throw new Error('Finance applications only apply to BANK_FINANCING deals');
+      throw new Error(
+        'Finance applications only apply to BANK_FINANCING deals',
+      );
     }
     return this.prisma.financeApplication.create({
       data: {
@@ -349,16 +522,23 @@ export class DealsService {
         termMonths: data.termMonths ? Number(data.termMonths) : undefined,
         apr: data.apr,
         monthlyPayment: data.monthlyPayment,
-        requiredDocuments: data.documents?.length ? {
-          create: data.documents.map((d: any) => ({ documentType: d.documentType, notes: d.notes })),
-        } : undefined,
+        requiredDocuments: data.documents?.length
+          ? {
+              create: data.documents.map((d: any) => ({
+                documentType: d.documentType,
+                notes: d.notes,
+              })),
+            }
+          : undefined,
       },
       include: { requiredDocuments: true, bankApproval: true },
     });
   }
 
   async updateFinanceApplication(dealId: string, data: any) {
-    const app = await this.prisma.financeApplication.findUniqueOrThrow({ where: { dealId } });
+    const app = await this.prisma.financeApplication.findUniqueOrThrow({
+      where: { dealId },
+    });
     return this.prisma.financeApplication.update({
       where: { id: app.id },
       data: {
@@ -377,15 +557,26 @@ export class DealsService {
     });
   }
 
-  async addDocument(dealId: string, data: { documentType: string; fileUrl?: string; notes?: string }) {
-    const app = await this.prisma.financeApplication.findUniqueOrThrow({ where: { dealId } });
+  async addDocument(
+    dealId: string,
+    data: { documentType: string; fileUrl?: string; notes?: string },
+  ) {
+    const app = await this.prisma.financeApplication.findUniqueOrThrow({
+      where: { dealId },
+    });
     return this.prisma.bankFinancingDocument.create({
       data: { financeApplicationId: app.id, ...data },
     });
   }
 
-  async updateDocument(dealId: string, docId: string, data: { status?: string; fileUrl?: string; notes?: string }) {
-    const app = await this.prisma.financeApplication.findUniqueOrThrow({ where: { dealId } });
+  async updateDocument(
+    dealId: string,
+    docId: string,
+    data: { status?: string; fileUrl?: string; notes?: string },
+  ) {
+    const app = await this.prisma.financeApplication.findUniqueOrThrow({
+      where: { dealId },
+    });
     return this.prisma.bankFinancingDocument.update({
       where: { id: docId, financeApplicationId: app.id },
       data: {
@@ -397,14 +588,27 @@ export class DealsService {
     });
   }
 
-  async recordBankApproval(dealId: string, data: {
-    approvalReferenceNumber: string; approvedAmount: number;
-    approvalDate: string; expiryDate?: string; approvalDocumentUrl?: string; notes?: string;
-  }) {
-    const app = await this.prisma.financeApplication.findUniqueOrThrow({ where: { dealId } });
+  async recordBankApproval(
+    dealId: string,
+    data: {
+      approvalReferenceNumber: string;
+      approvedAmount: number;
+      approvalDate: string;
+      expiryDate?: string;
+      approvalDocumentUrl?: string;
+      notes?: string;
+    },
+  ) {
+    const app = await this.prisma.financeApplication.findUniqueOrThrow({
+      where: { dealId },
+    });
     const approval = await this.prisma.bankApproval.upsert({
       where: { financeApplicationId: app.id },
-      update: { ...data, approvalDate: new Date(data.approvalDate), expiryDate: data.expiryDate ? new Date(data.expiryDate) : null },
+      update: {
+        ...data,
+        approvalDate: new Date(data.approvalDate),
+        expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
+      },
       create: {
         financeApplicationId: app.id,
         approvalReferenceNumber: data.approvalReferenceNumber,
@@ -420,13 +624,21 @@ export class DealsService {
       data: { bankFinancingStatus: 'APPROVED', status: 'APPROVED' },
     });
     // Move deal to PENDING_FINANCE for final finance review before finalize
-    await this.prisma.deal.update({ where: { id: dealId }, data: { status: 'PENDING_FINANCE' } });
+    await this.prisma.deal.update({
+      where: { id: dealId },
+      data: { status: 'PENDING_FINANCE' },
+    });
     return approval;
   }
 
   // ── Commission splits ─────────────────────────────────────────────────────
 
-  private async resolveCommissionAmount(baseAmount: number, splitPercentage: number, commissionPlanId?: string, repUserId?: string): Promise<number> {
+  private async resolveCommissionAmount(
+    baseAmount: number,
+    splitPercentage: number,
+    commissionPlanId?: string,
+    repUserId?: string,
+  ): Promise<number> {
     if (!commissionPlanId) return (baseAmount * splitPercentage) / 100;
 
     const plan = await this.prisma.commissionPlan.findUnique({
@@ -440,15 +652,25 @@ export class DealsService {
       planRate = Number(plan.flatAmount ?? 0);
       return (planRate * splitPercentage) / 100;
     }
-    if (plan.basisType === 'PERCENT_OF_SALE_PRICE' || plan.basisType === 'PERCENT_OF_GROSS_PROFIT') {
+    if (
+      plan.basisType === 'PERCENT_OF_SALE_PRICE' ||
+      plan.basisType === 'PERCENT_OF_GROSS_PROFIT'
+    ) {
       planRate = Number(plan.percentage ?? 0);
-      return (baseAmount * planRate / 100 * splitPercentage) / 100;
+      return (((baseAmount * planRate) / 100) * splitPercentage) / 100;
     }
     if (plan.basisType === 'TIERED') {
       // ponytail: cumulative volume = sum of rep's FINALIZED deal salePrices this calendar month
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      const monthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+      );
 
       let cumulativeVolume = baseAmount;
       if (repUserId) {
@@ -460,27 +682,48 @@ export class DealsService {
           },
           select: { salePrice: true },
         });
-        cumulativeVolume = repDeals.reduce((s, d) => s + Number(d.salePrice), 0) + baseAmount;
+        cumulativeVolume =
+          repDeals.reduce((s, d) => s + Number(d.salePrice), 0) + baseAmount;
       }
 
-      const applicableTier = [...plan.tiers].reverse().find((t) => cumulativeVolume >= Number(t.minValue));
+      const applicableTier = [...plan.tiers]
+        .reverse()
+        .find((t) => cumulativeVolume >= Number(t.minValue));
       if (!applicableTier) return 0;
-      const tierBase = applicableTier.rateType === 'FLAT_AMOUNT'
-        ? Number(applicableTier.rateValue)
-        : baseAmount * Number(applicableTier.rateValue) / 100;
+      const tierBase =
+        applicableTier.rateType === 'FLAT_AMOUNT'
+          ? Number(applicableTier.rateValue)
+          : (baseAmount * Number(applicableTier.rateValue)) / 100;
       return (tierBase * splitPercentage) / 100;
     }
     return (baseAmount * splitPercentage) / 100;
   }
 
-  async addCommissionSplit(dealId: string, data: {
-    userId: string; roleInDeal: string; commissionPlanId?: string;
-    baseAmount: number; splitPercentage: number;
-  }, userId: string) {
-    const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id: dealId } });
-    if (deal.status === 'FINALIZED') throw new BadRequestException('Cannot modify commissions on a finalized deal');
+  async addCommissionSplit(
+    dealId: string,
+    data: {
+      userId: string;
+      roleInDeal: string;
+      commissionPlanId?: string;
+      baseAmount: number;
+      splitPercentage: number;
+    },
+    userId: string,
+  ) {
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id: dealId },
+    });
+    if (deal.status === 'FINALIZED')
+      throw new BadRequestException(
+        'Cannot modify commissions on a finalized deal',
+      );
 
-    const calculatedAmount = await this.resolveCommissionAmount(data.baseAmount, data.splitPercentage, data.commissionPlanId, data.userId);
+    const calculatedAmount = await this.resolveCommissionAmount(
+      data.baseAmount,
+      data.splitPercentage,
+      data.commissionPlanId,
+      data.userId,
+    );
 
     const commission = await this.prisma.dealCommission.create({
       data: {
@@ -493,18 +736,34 @@ export class DealsService {
         calculatedAmount,
         status: 'ACCRUED',
       },
-      include: { user: { select: { id: true, name: true } }, commissionPlan: { select: { name: true } } },
+      include: {
+        user: { select: { id: true, name: true } },
+        commissionPlan: { select: { name: true } },
+      },
     });
 
     // ponytail: validate total split % <= 100 after insert
-    const splits = await this.prisma.dealCommission.findMany({ where: { dealId } });
-    const totalPct = splits.reduce((s, c) => s + Number(c.splitPercentage ?? 100), 0);
+    const splits = await this.prisma.dealCommission.findMany({
+      where: { dealId },
+    });
+    const totalPct = splits.reduce(
+      (s, c) => s + Number(c.splitPercentage ?? 100),
+      0,
+    );
     if (totalPct > 100) {
       await this.prisma.dealCommission.delete({ where: { id: commission.id } });
-      throw new BadRequestException(`Commission split total ${totalPct}% exceeds 100%. Reduce the percentage.`);
+      throw new BadRequestException(
+        `Commission split total ${totalPct}% exceeds 100%. Reduce the percentage.`,
+      );
     }
 
-    await this.audit.log({ entity: 'DealCommission', entityId: commission.id, action: 'CREATE', userId, newValue: commission });
+    await this.audit.log({
+      entity: 'DealCommission',
+      entityId: commission.id,
+      action: 'CREATE',
+      userId,
+      newValue: commission,
+    });
     return commission;
   }
 
@@ -518,7 +777,9 @@ export class DealsService {
       include: {
         installmentPlan: {
           include: {
-            deal: { select: { id: true, customer: { select: { name: true } } } },
+            deal: {
+              select: { id: true, customer: { select: { name: true } } },
+            },
           },
         },
       },
@@ -527,25 +788,49 @@ export class DealsService {
     });
   }
 
-  async removeCommissionSplit(dealId: string, commissionId: string, userId: string) {
-    const c = await this.prisma.dealCommission.findUniqueOrThrow({ where: { id: commissionId } });
-    if (c.dealId !== dealId) throw new BadRequestException('Commission does not belong to this deal');
-    if (c.status !== 'ACCRUED') throw new BadRequestException('Cannot remove commission that has been paid or is payable');
+  async removeCommissionSplit(
+    dealId: string,
+    commissionId: string,
+    userId: string,
+  ) {
+    const c = await this.prisma.dealCommission.findUniqueOrThrow({
+      where: { id: commissionId },
+    });
+    if (c.dealId !== dealId)
+      throw new BadRequestException('Commission does not belong to this deal');
+    if (c.status !== 'ACCRUED')
+      throw new BadRequestException(
+        'Cannot remove commission that has been paid or is payable',
+      );
     await this.prisma.dealCommission.delete({ where: { id: commissionId } });
-    await this.audit.log({ entity: 'DealCommission', entityId: commissionId, action: 'DELETE', userId });
+    await this.audit.log({
+      entity: 'DealCommission',
+      entityId: commissionId,
+      action: 'DELETE',
+      userId,
+    });
     return { deleted: true };
   }
 
   // ponytail: bounds enforcement per spec 09 — SALES_REP/MANAGER can't deviate >X% from location default
   private async assertFeeBounds(
-    locationId: string, userRole: string,
-    adminFee?: number, insuranceFee?: number,
+    locationId: string,
+    userRole: string,
+    adminFee?: number,
+    insuranceFee?: number,
   ) {
     if (!adminFee && !insuranceFee) return;
     if (['FINANCE', 'ADMIN', 'SUPER_ADMIN'].includes(userRole)) return;
     const loc = await this.prisma.location.findUniqueOrThrow({
       where: { id: locationId },
-      include: { company: { select: { adminFeeBoundsPercent: true, insuranceFeeBoundsPercent: true } } },
+      include: {
+        company: {
+          select: {
+            adminFeeBoundsPercent: true,
+            insuranceFeeBoundsPercent: true,
+          },
+        },
+      },
     });
     const adminBound = Number(loc.company?.adminFeeBoundsPercent ?? 20) / 100;
     const insBound = Number(loc.company?.insuranceFeeBoundsPercent ?? 20) / 100;
