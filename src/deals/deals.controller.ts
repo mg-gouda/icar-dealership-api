@@ -41,6 +41,12 @@ export class DealsController {
     return this.svc.findAll({ ...q, locationId });
   }
 
+  @Post('bulk')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  bulk(@Body() body: { ids: string[]; action: string; value?: string }, @Request() req: any) {
+    return this.svc.bulk(body.ids, body.action, body.value, req.user.id);
+  }
+
   // ponytail: static routes before :id wildcard
   @Get('installments/overdue-count')
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
@@ -52,6 +58,12 @@ export class DealsController {
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   listOverdueInstallments(@Query('limit') limit?: string) {
     return this.svc.listOverdueInstallments(limit ? Number(limit) : 20);
+  }
+
+  @Get(':id/statement')
+  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  statement(@Param('id') id: string) {
+    return this.svc.getStatement(id);
   }
 
   @Get(':id')

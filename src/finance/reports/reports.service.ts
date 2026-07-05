@@ -109,6 +109,92 @@ export class ReportsService {
     };
   }
 
+  async revenueByMonth(companyId: string, months = 6) {
+    const result: { month: string; revenue: number; expenses: number }[] = [];
+    const now = new Date();
+
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const from = new Date(d.getFullYear(), d.getMonth(), 1);
+      const to = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+      const monthLabel = from.toLocaleString('en', { month: 'short' });
+
+      const rows = await this.prisma.journalEntryLine.groupBy({
+        by: ['accountId'],
+        where: {
+          account: { companyId, type: { in: ['INCOME', 'EXPENSE', 'COGS', 'OTHER_INCOME'] as any[] } },
+          journalEntry: { status: 'POSTED', date: { gte: from, lte: to }, journal: { companyId } },
+        },
+        _sum: { debit: true, credit: true },
+      });
+
+      const accountIds = rows.map((r) => r.accountId);
+      const accs = await this.prisma.account.findMany({
+        where: { id: { in: accountIds } },
+        select: { id: true, type: true },
+      });
+      const accMap = new Map(accs.map((a) => [a.id, a]));
+
+      let revenue = new Decimal(0);
+      let expenses = new Decimal(0);
+      for (const r of rows) {
+        const acc = accMap.get(r.accountId);
+        if (!acc) continue;
+        const credit = new Decimal(r._sum?.credit?.toString() ?? '0');
+        const debit = new Decimal(r._sum?.debit?.toString() ?? '0');
+        if (['INCOME', 'OTHER_INCOME'].includes(acc.type)) revenue = revenue.plus(credit.minus(debit));
+        else expenses = expenses.plus(debit.minus(credit));
+      }
+      result.push({ month: monthLabel, revenue: revenue.toNumber(), expenses: expenses.toNumber() });
+    }
+    return { months: result };
+  }
+
+  async branchProfit(companyId: string) {
+    const locations = await this.prisma.location.findMany({
+      where: { companyId },
+      select: { id: true, name: true },
+    });
+
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const result: { branch: string; gross: number }[] = [];
+    for (const loc of locations) {
+      const rows = await this.prisma.journalEntryLine.groupBy({
+        by: ['accountId'],
+        where: {
+          account: { companyId, type: { in: ['INCOME', 'COGS', 'EXPENSE'] as any[] } },
+          journalEntry: {
+            status: 'POSTED',
+            date: { gte: from },
+            journal: { companyId, locationId: loc.id },
+          },
+        },
+        _sum: { debit: true, credit: true },
+      });
+
+      const accountIds = rows.map((r) => r.accountId);
+      const accs = await this.prisma.account.findMany({
+        where: { id: { in: accountIds } },
+        select: { id: true, type: true },
+      });
+      const accMap = new Map(accs.map((a) => [a.id, a]));
+
+      let gross = new Decimal(0);
+      for (const r of rows) {
+        const acc = accMap.get(r.accountId);
+        if (!acc) continue;
+        const credit = new Decimal(r._sum?.credit?.toString() ?? '0');
+        const debit = new Decimal(r._sum?.debit?.toString() ?? '0');
+        if (acc.type === 'INCOME') gross = gross.plus(credit.minus(debit));
+        else gross = gross.minus(debit.minus(credit));
+      }
+      result.push({ branch: loc.name, gross: gross.toNumber() });
+    }
+    return { branches: result.sort((a, b) => b.gross - a.gross) };
+  }
+
   async balanceSheet(companyId: string, asOf: Date) {
     const assetTypes = [
       'ASSET',
@@ -388,6 +474,79 @@ export class ReportsService {
     }
 
     return results;
+  }
+
+  async vatReturnEta(companyId: string, dateFrom: Date, dateTo: Date) {
+    // ETA VAT return — boxes 1-13 per Egyptian Tax Authority format
+    const incomeAccounts = await this.prisma.account.findMany({
+      where: { companyId, type: { in: ['INCOME', 'OTHER_INCOME'] as any[] } },
+      select: { id: true },
+    });
+    const expenseAccounts = await this.prisma.account.findMany({
+      where: { companyId, type: { in: ['EXPENSE', 'COGS'] as any[] } },
+      select: { id: true },
+    });
+    const taxAccounts = await this.prisma.account.findMany({
+      where: { companyId, code: { in: ['2100', '2110', '1310', '1320'] } },
+      select: { id: true, code: true, name: true },
+    });
+
+    const sumLines = async (accountIds: string[], sign: 1 | -1 = 1) => {
+      if (!accountIds.length) return new Decimal(0);
+      const r = await this.prisma.journalEntryLine.aggregate({
+        where: {
+          accountId: { in: accountIds },
+          journalEntry: { status: 'POSTED', date: { gte: dateFrom, lte: dateTo }, journal: { companyId } },
+        },
+        _sum: { credit: true, debit: true },
+      });
+      const credit = new Decimal(r._sum?.credit?.toString() ?? '0');
+      const debit = new Decimal(r._sum?.debit?.toString() ?? '0');
+      return sign === 1 ? credit.minus(debit) : debit.minus(credit);
+    };
+
+    const incomeIds = incomeAccounts.map((a) => a.id);
+    const expenseIds = expenseAccounts.map((a) => a.id);
+
+    const totalSales = await sumLines(incomeIds, 1);
+    const totalPurchases = await sumLines(expenseIds, -1);
+    const vatRate = new Decimal('0.14');
+    const vatOnSales = totalSales.times(vatRate);
+    const vatOnPurchases = totalPurchases.times(vatRate);
+    const netVatPayable = vatOnSales.minus(vatOnPurchases);
+
+    // ETA Box mapping (simplified standard-rate only — no exempt/zero-rated split without invoice-level tax codes)
+    const boxes = {
+      box1_standardRatedSales: totalSales.toFixed(2),
+      box2_zeroRatedSales: '0.00',
+      box3_exemptSales: '0.00',
+      box4_totalSales: totalSales.toFixed(2),
+      box5_vatOnSales: vatOnSales.toFixed(2),
+      box6_standardRatedPurchases: totalPurchases.toFixed(2),
+      box7_zeroRatedPurchases: '0.00',
+      box8_exemptPurchases: '0.00',
+      box9_totalPurchases: totalPurchases.toFixed(2),
+      box10_vatOnPurchases: vatOnPurchases.toFixed(2),
+      box11_netVatPayable: netVatPayable.toFixed(2),
+      box12_vatCreditsCarriedForward: '0.00',
+      box13_vatPayable: netVatPayable.gt(0) ? netVatPayable.toFixed(2) : '0.00',
+    };
+
+    return {
+      period: { from: dateFrom.toISOString().split('T')[0], to: dateTo.toISOString().split('T')[0] },
+      companyId,
+      boxes,
+      summary: {
+        netVatPayable: netVatPayable.toFixed(2),
+        isRefundDue: netVatPayable.lt(0),
+        refundAmount: netVatPayable.lt(0) ? netVatPayable.abs().toFixed(2) : '0.00',
+      },
+      // JSON structured for ETA API submission
+      etaPayload: {
+        header: { taxType: 'VAT', periodType: 'MONTHLY', periodYear: dateFrom.getFullYear(), periodMonth: dateFrom.getMonth() + 1 },
+        transactions: Object.entries(boxes).map(([box, value]) => ({ boxCode: box, value })),
+      },
+    };
   }
 
   async glByAccount(

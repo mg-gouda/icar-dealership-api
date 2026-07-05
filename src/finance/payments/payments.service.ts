@@ -93,9 +93,26 @@ export class PaymentsService {
       memo?: string;
       dealId?: string;
       invoiceIds?: string[];
+      whtCategoryId?: string;
     },
     userId: string,
   ) {
+    // ponytail: WHT deduction on vendor payments
+    let whtAmount: number | undefined;
+    let whtCategoryId: string | undefined;
+
+    if (data.whtCategoryId) {
+      const whtCat = await this.prisma.whtCategory.findUnique({
+        where: { id: data.whtCategoryId },
+      });
+      if (whtCat && whtCat.isActive) {
+        whtCategoryId = whtCat.id;
+        whtAmount = Math.round(data.amount * Number(whtCat.rate) * 100) / 10000;
+        // whtAmount = amount * rate / 100, done via (amount * rate) / 100
+        whtAmount = Math.round(data.amount * Number(whtCat.rate)) / 100;
+      }
+    }
+
     const payment = await this.prisma.$transaction(async (tx) => {
       const p = await tx.payment.create({
         data: {
@@ -108,6 +125,8 @@ export class PaymentsService {
           status: 'DRAFT',
           memo: data.memo,
           dealId: data.dealId,
+          ...(whtCategoryId && { whtCategoryId }),
+          ...(whtAmount !== undefined && { whtAmount }),
         },
       });
 
@@ -206,6 +225,19 @@ export class PaymentsService {
       newValue: { invoiceId, amount },
     });
     return allocation;
+  }
+
+  // ponytail: WHT categories listing
+  async findAllWhtCategories(companyId: string) {
+    try {
+      return await this.prisma.whtCategory.findMany({
+        where: { companyId, isActive: true },
+        orderBy: { name: 'asc' },
+      });
+    } catch {
+      // WhtCategory model may not exist yet if migration pending
+      return [];
+    }
   }
 
   async cancel(id: string, userId: string) {

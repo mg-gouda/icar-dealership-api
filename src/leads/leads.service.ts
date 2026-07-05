@@ -226,4 +226,30 @@ export class LeadsService {
     });
     return deal;
   }
+
+  async bulk(ids: string[], action: string, value: string | undefined, userId: string) {
+    if (!ids?.length) throw new Error('ids required');
+    const allowed = ['ASSIGN_REP', 'CHANGE_STATUS', 'CLOSE_LOST'];
+    if (!allowed.includes(action)) throw new Error(`action must be one of ${allowed.join(', ')}`);
+
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const id of ids) {
+      try {
+        if (action === 'ASSIGN_REP') {
+          if (!value) throw new Error('value required');
+          await this.prisma.lead.update({ where: { id }, data: { assignedToUserId: value } });
+        } else if (action === 'CHANGE_STATUS') {
+          if (!value) throw new Error('value required');
+          await this.prisma.lead.update({ where: { id }, data: { status: value as any } });
+        } else if (action === 'CLOSE_LOST') {
+          await this.prisma.lead.update({ where: { id }, data: { status: 'CLOSED_LOST' } });
+        }
+        await this.audit.log({ entity: 'Lead', entityId: id, action: `BULK_${action}`, userId, newValue: { value } });
+        results.push({ id, ok: true });
+      } catch (e: any) {
+        results.push({ id, ok: false, error: e?.message ?? 'unknown' });
+      }
+    }
+    return { processed: results.length, succeeded: results.filter((r) => r.ok).length, results };
+  }
 }

@@ -105,6 +105,30 @@ export class ReportsController {
     );
   }
 
+  @Get('vat-return-eta')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  vatReturnEta(@Request() req: any, @Query() q: any) {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    return this.svc.vatReturnEta(
+      req.user.companyId,
+      new Date(q.dateFrom ?? monthStart),
+      new Date(q.dateTo ?? now),
+    );
+  }
+
+  @Get('revenue-by-month')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN', 'MANAGER')
+  revenueByMonth(@Request() req: any, @Query('months') months?: string) {
+    return this.svc.revenueByMonth(req.user.companyId, months ? Number(months) : 6);
+  }
+
+  @Get('branch-profit')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN', 'MANAGER')
+  branchProfit(@Request() req: any) {
+    return this.svc.branchProfit(req.user.companyId);
+  }
+
   // UI path aliases
   @Get('profit-loss')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')

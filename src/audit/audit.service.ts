@@ -21,6 +21,8 @@ export class AuditService {
   constructor(private prisma: PrismaService) {}
 
   async log(params: AuditLogParams) {
+    // ponytail: 'system' is a sentinel for public/unauthenticated routes — no FK user row
+    if (params.userId === 'system') return;
     return this.prisma.auditLog.create({
       data: {
         userId: params.userId,

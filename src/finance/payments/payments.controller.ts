@@ -15,6 +15,20 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
+@ApiTags('Finance / WHT Categories')
+@ApiBearerAuth()
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Controller('finance/wht-categories')
+export class WhtCategoriesController {
+  constructor(private svc: PaymentsService) {}
+
+  @Get()
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN', 'MANAGER')
+  findAll(@Request() req: any) {
+    return this.svc.findAllWhtCategories(req.user.companyId);
+  }
+}
+
 @ApiTags('Finance / Payments')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard)

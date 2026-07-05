@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
+import { EtaService } from '../eta/eta.service';
 
 @Injectable()
 export class InvoicesService {
@@ -13,6 +14,7 @@ export class InvoicesService {
     private prisma: PrismaService,
     private audit: AuditService,
     private posting: PostingService,
+    private eta: EtaService,
   ) {}
 
   findAll(
@@ -159,6 +161,10 @@ export class InvoicesService {
       action: 'POST',
       userId,
     });
+
+    // ponytail: fire-and-forget ETA submission -- don't block invoice posting on ETA response
+    this.eta.submitInvoice(id, userId).catch(() => undefined);
+
     return this.findById(id);
   }
 
@@ -180,6 +186,15 @@ export class InvoicesService {
       userId,
     });
     return updated;
+  }
+
+  async reverse(id: string, userId: string) {
+    const inv = await this.prisma.invoice.findUniqueOrThrow({ where: { id } });
+    if (inv.status !== 'POSTED')
+      throw new BadRequestException('Only POSTED invoices can be reversed');
+    await this.posting.reverseInvoice(id);
+    await this.audit.log({ entity: 'Invoice', entityId: id, action: 'REVERSE', userId });
+    return this.findById(id);
   }
 
   async addLine(
@@ -235,6 +250,148 @@ export class InvoicesService {
       newValue: line,
     });
     return line;
+  }
+
+  // ponytail: batch AP payment run — mark POSTED vendor bills as PAID + create payments + GL
+  async apPaymentRun(
+    invoiceIds: string[],
+    paymentDate: Date,
+    journalId: string | undefined,
+    userId: string,
+  ) {
+    if (!invoiceIds?.length)
+      throw new BadRequestException('invoiceIds required');
+
+    const results: { invoiceId: string; ok: boolean; error?: string }[] = [];
+    let totalAmount = 0;
+
+    for (const invoiceId of invoiceIds) {
+      try {
+        const inv = await this.prisma.invoice.findUniqueOrThrow({
+          where: { id: invoiceId },
+          include: { journal: true },
+        });
+
+        if (inv.status !== 'POSTED') {
+          throw new BadRequestException(`Invoice ${invoiceId} is not POSTED (status: ${inv.status})`);
+        }
+        if (inv.type !== 'VENDOR_BILL') {
+          throw new BadRequestException(`Invoice ${invoiceId} is not a VENDOR_BILL (type: ${inv.type})`);
+        }
+
+        const amount = Number(inv.amountResidual);
+        if (amount <= 0) {
+          throw new BadRequestException(`Invoice ${invoiceId} has no residual amount`);
+        }
+
+        const payJournalId = journalId ?? inv.journalId;
+
+        await this.prisma.$transaction(async (tx) => {
+          // 1. Create payment record
+          const payment = await tx.payment.create({
+            data: {
+              type: 'VENDOR_PAYMENT',
+              partnerId: inv.partnerId,
+              journalId: payJournalId,
+              amount,
+              date: paymentDate,
+              method: 'BANK_TRANSFER',
+              status: 'POSTED',
+              memo: `AP Payment Run — Invoice ${invoiceId.slice(-8).toUpperCase()}`,
+            },
+          });
+
+          // 2. Allocate payment to invoice
+          await tx.paymentAllocation.create({
+            data: { paymentId: payment.id, invoiceId, amount },
+          });
+
+          // 3. Mark invoice PAID
+          await tx.invoice.update({
+            where: { id: invoiceId },
+            data: { amountResidual: 0, paymentStatus: 'PAID' },
+          });
+
+          // 4. GL entry: DR AP (2100) / CR Bank (journal default credit account)
+          const journal = await tx.journal.findUniqueOrThrow({
+            where: { id: payJournalId },
+          });
+          const bankAccountId = journal.defaultCreditAccountId;
+          if (!bankAccountId) {
+            throw new BadRequestException(
+              `Journal ${payJournalId} has no default credit account — configure it first`,
+            );
+          }
+          const accounts = await this.resolveAccounts(journal.companyId, ['2100']);
+
+          await tx.journalEntry.create({
+            data: {
+              journalId: payJournalId,
+              date: paymentDate,
+              ref: `APRUN-${invoiceId.slice(-8).toUpperCase()}`,
+              status: 'POSTED',
+              paymentId: payment.id,
+              lines: {
+                create: [
+                  {
+                    accountId: accounts['2100'],
+                    debit: amount,
+                    credit: 0,
+                    partnerId: inv.partnerId,
+                    label: 'AP Payment Run — Clear AP',
+                  },
+                  {
+                    accountId: bankAccountId,
+                    debit: 0,
+                    credit: amount,
+                    label: 'AP Payment Run — Bank',
+                  },
+                ],
+              },
+            },
+          });
+        });
+
+        await this.audit.log({
+          entity: 'Invoice',
+          entityId: invoiceId,
+          action: 'AP_PAYMENT_RUN',
+          userId,
+          newValue: { amount },
+        });
+
+        totalAmount += amount;
+        results.push({ invoiceId, ok: true });
+      } catch (e: any) {
+        results.push({ invoiceId, ok: false, error: e?.message ?? 'unknown' });
+      }
+    }
+
+    return {
+      processed: results.filter((r) => r.ok).length,
+      totalAmount,
+      results,
+    };
+  }
+
+  // ponytail: resolve account codes → IDs
+  private async resolveAccounts(
+    companyId: string,
+    codes: string[],
+  ): Promise<Record<string, string>> {
+    const rows = await this.prisma.account.findMany({
+      where: { companyId, code: { in: codes } },
+      select: { id: true, code: true },
+    });
+    const map: Record<string, string> = {};
+    for (const r of rows) map[r.code] = r.id;
+    const missing = codes.filter((c) => !map[c]);
+    if (missing.length) {
+      throw new BadRequestException(
+        `GL accounts not found: ${missing.join(', ')}. Run prisma:seed first.`,
+      );
+    }
+    return map;
   }
 
   async threeWayMatch(invoiceId: string) {

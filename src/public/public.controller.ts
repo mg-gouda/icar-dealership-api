@@ -16,6 +16,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { LeadsService } from '../leads/leads.service';
+import { DealsService } from '../deals/deals.service';
 
 @ApiTags('Public')
 @Controller({ path: 'public', version: '1' })
@@ -23,6 +24,7 @@ export class PublicController {
   constructor(
     private prisma: PrismaService,
     private leadsService: LeadsService,
+    private dealsService: DealsService,
   ) {}
 
   @Get('vehicles')
@@ -515,6 +517,14 @@ export class PublicController {
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Get('account/deals/:id/statement')
+  @ApiOperation({ summary: 'Get installment statement for a customer deal' })
+  async myDealStatement(@Param('id') id: string, @Request() req: any) {
+    await this.prisma.deal.findFirstOrThrow({ where: { id, customerId: req.user.id } });
+    return this.dealsService.getStatement(id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
   @Patch('account/profile')
   @ApiOperation({ summary: "Update logged-in customer's profile" })
   async updateProfile(
@@ -584,5 +594,147 @@ export class PublicController {
         uploadedAt: new Date(),
       },
     });
+  }
+
+  // ── Public delivery tracker (no auth) ────────────────────────────────────
+
+  @Get('deals/track')
+  @ApiOperation({ summary: 'Public deal delivery tracker by token (deal ID)' })
+  async trackDeal(@Query('token') token: string) {
+    if (!token) return { found: false };
+
+    const deal = await this.prisma.deal.findFirst({
+      where: {
+        OR: [{ id: token }, { id: { endsWith: token.slice(-8).toUpperCase() } }],
+      },
+      select: {
+        id: true,
+        status: true,
+        purchaseMethod: true,
+        createdAt: true,
+        vehicle: { select: { make: true, model: true, year: true, color: true } },
+        customer: { select: { name: true } },
+        salesRep: { select: { name: true, phone: true } },
+        location: { select: { name: true, phone: true } },
+        serviceOrders: {
+          where: { type: 'PDI' },
+          select: { status: true, completedAt: true },
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!deal) return { found: false };
+
+    // Build status timeline from deal state
+    const pdiOrder = deal.serviceOrders?.[0];
+    const steps = [
+      { label: 'Deal Signed', done: true, date: deal.createdAt },
+      {
+        label: 'Pre-Delivery Inspection',
+        done: pdiOrder?.status === 'COMPLETED' || deal.status === 'FINALIZED',
+        date: pdiOrder?.completedAt ?? null,
+        current: pdiOrder && pdiOrder.status !== 'COMPLETED',
+      },
+      {
+        label: 'Ready for Pickup',
+        done: deal.status === 'FINALIZED',
+        current: deal.status === 'FINALIZED' && (!pdiOrder || pdiOrder.status === 'COMPLETED'),
+      },
+      { label: 'Delivered', done: false },
+    ];
+
+    return {
+      found: true,
+      vehicle: deal.vehicle,
+      customer: { name: deal.customer.name },
+      salesRep: deal.salesRep,
+      location: deal.location,
+      status: deal.status,
+      steps,
+    };
+  }
+
+  // ── Public lead creation (trade-in, alerts) ───────────────────────────────
+
+  @Post('vehicles/:id/alerts')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Subscribe to price/availability alerts for a vehicle' })
+  async vehicleAlert(@Param('id') vehicleId: string, @Body() body: { email: string; phone?: string }) {
+    // ponytail: store as a lead with PRICE_ALERT source until a dedicated alert table is added
+    const vehicle = await this.prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { make: true, model: true, year: true },
+    });
+    const note = vehicle ? `Price alert: ${vehicle.year} ${vehicle.make} ${vehicle.model}` : `Price alert: vehicle ${vehicleId}`;
+    const loc = await this.prisma.location.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } });
+    if (!loc) return { ok: false };
+    await this.prisma.lead.create({
+      data: {
+        name: body.email,
+        email: body.email,
+        phone: body.phone,
+        source: 'WEBSITE' as any,
+        notes: note,
+        vehicleId,
+        status: 'NEW',
+        locationId: loc.id,
+      },
+    });
+    return { ok: true };
+  }
+
+  @Post('alerts')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Subscribe to availability alerts for a vehicle spec' })
+  async availabilityAlert(@Body() body: { vehicleId?: string; make?: string; model?: string; email: string; phone?: string }) {
+    const note = `Availability alert: ${body.make ?? ''} ${body.model ?? ''} (vehicle: ${body.vehicleId ?? 'any'})`.trim();
+    const loc = await this.prisma.location.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } });
+    if (!loc) return { ok: false };
+    await this.prisma.lead.create({
+      data: {
+        name: body.email,
+        email: body.email,
+        phone: body.phone,
+        source: 'WEBSITE' as any,
+        notes: note,
+        vehicleId: body.vehicleId,
+        status: 'NEW',
+        locationId: loc.id,
+      },
+    });
+    return { ok: true };
+  }
+
+  // ── Public user profiles (sales reps) ─────────────────────────────────────
+
+  @Get('users')
+  @ApiOperation({ summary: 'List public sales rep profiles' })
+  async listPublicUsers(@Query('role') role?: string) {
+    return this.prisma.user.findMany({
+      where: { role: (role ?? 'SALES_REP') as any, isActive: true },
+      select: { id: true, name: true, role: true, locationId: true, location: { select: { name: true } } },
+      take: 50,
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  @Get('users/:id/profile')
+  @ApiOperation({ summary: 'Get a sales rep public profile' })
+  async getPublicUserProfile(@Param('id') id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, name: true, role: true, locationId: true, location: { select: { name: true, city: true } } },
+    });
+    if (!user) return null;
+    const dealsThisMonth = await this.prisma.deal.count({
+      where: {
+        salesRepId: id,
+        status: 'FINALIZED',
+        createdAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
+      },
+    });
+    return { ...user, dealsThisMonth };
   }
 }

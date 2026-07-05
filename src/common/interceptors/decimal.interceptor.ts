@@ -21,6 +21,7 @@ function decimalToNumber(v: { s: number; e: number; d: number[] }): number {
 
 function serializeDecimals(v: unknown): unknown {
   if (v === null || v === undefined) return v;
+  if (v instanceof Date) return v.toISOString();
   if (isPrismaDecimal(v)) return decimalToNumber(v);
   if (Array.isArray(v)) return v.map(serializeDecimals);
   if (typeof v === 'object') {

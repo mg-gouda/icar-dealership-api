@@ -35,10 +35,20 @@ import { BankStatementsModule } from './finance/bank-statements/bank-statements.
 import { ReconciliationModule } from './finance/reconciliation/reconciliation.module';
 import { AssetsModule } from './finance/assets/assets.module';
 import { ReportsModule } from './finance/reports/reports.module';
+import { EtaModule } from './finance/eta/eta.module';
+import { ServiceCenterModule } from './service-center/service-center.module';
+import { PartsModule } from './parts/parts.module';
 import { PublicModule } from './public/public.module';
+import { ReservationModule } from './public/reservations/reservation.module';
 import { TasksModule } from './tasks/tasks.module';
 import { MailModule } from './common/mail/mail.module';
 import { UploadModule } from './upload/upload.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { SalesTargetsModule } from './sales-targets/sales-targets.module';
+import { TransfersModule } from './transfers/transfers.module';
+import { PettyCashModule } from './petty-cash/petty-cash.module';
+import { ImportShipmentsModule } from './import-shipments/import-shipments.module';
+import { FloorPlanModule } from './floor-plan/floor-plan.module';
 
 @Module({
   imports: [
@@ -65,9 +75,12 @@ import { UploadModule } from './upload/upload.module';
     CommissionPlansModule,
     PurchaseOrdersModule,
     PartnersModule,
+    ServiceCenterModule,
+    PartsModule,
 
     // Public (B2C — no auth)
     PublicModule,
+    ReservationModule,
 
     // Finance
     PostingModule,
@@ -83,9 +96,24 @@ import { UploadModule } from './upload/upload.module';
     ReconciliationModule,
     AssetsModule,
     ReportsModule,
+    EtaModule,
 
     // Scheduled tasks
     TasksModule,
+
+    // Messaging
+    WhatsAppModule,
+
+    // Sales Performance
+    SalesTargetsModule,
+
+    // Inter-Location Transfers
+    TransfersModule,
+
+    // Petty Cash / Import / Floor Plan
+    PettyCashModule,
+    ImportShipmentsModule,
+    FloorPlanModule,
 
     // Cross-cutting
     MailModule,

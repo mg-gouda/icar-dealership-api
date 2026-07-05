@@ -61,6 +61,12 @@ export class LeadsController {
     return this.svc.addActivity(id, body, req.user.id);
   }
 
+  @Post('bulk')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  bulk(@Body() body: { ids: string[]; action: string; value?: string }, @Request() req: any) {
+    return this.svc.bulk(body.ids, body.action, body.value, req.user.id);
+  }
+
   @Patch(':id/convert')
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
   convert(@Param('id') id: string, @Request() req: any) {

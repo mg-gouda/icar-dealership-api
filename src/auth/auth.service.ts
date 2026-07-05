@@ -158,6 +158,7 @@ export class AuthService {
         email: true,
         role: true,
         locationId: true,
+        tokenVersion: true,
       },
     });
     if (!user.totpSecret)
@@ -184,6 +185,7 @@ export class AuthService {
         email: true,
         role: true,
         locationId: true,
+        tokenVersion: true,
       },
     });
     if (!user.totpEnabled || !user.totpSecret)
@@ -220,6 +222,7 @@ export class AuthService {
     email: string;
     role: string;
     locationId: string | null;
+    tokenVersion?: number;
   }) {
     const payload = {
       sub: user.id,
@@ -227,6 +230,7 @@ export class AuthService {
       role: user.role,
       locationId: user.locationId,
       companyId: 'company-001',
+      tv: user.tokenVersion ?? 0,
     };
     const accessToken = this.jwt.sign(payload);
     const refreshToken = this.jwt.sign(payload, {
@@ -252,8 +256,12 @@ export class AuthService {
       });
       const user = await this.prisma.user.findUniqueOrThrow({
         where: { id: payload.sub },
-        select: { id: true, email: true, role: true, locationId: true },
+        select: { id: true, email: true, role: true, locationId: true, tokenVersion: true },
       });
+      // ponytail: tv mismatch means user logged out — token is stale
+      if ((payload.tv ?? 0) !== user.tokenVersion) {
+        throw new UnauthorizedException('Token has been invalidated');
+      }
       return this.issueTokens(user);
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
@@ -278,6 +286,11 @@ export class AuthService {
   // ── Logout ─────────────────────────────────────────────────────────────────
 
   async auditLogout(userId: string) {
+    // Increment tokenVersion to invalidate all existing refresh tokens
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
     await this.audit.log({
       entity: 'Auth',
       entityId: userId,

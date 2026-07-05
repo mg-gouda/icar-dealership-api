@@ -52,10 +52,30 @@ export class InvoicesController {
     return this.svc.cancel(id, req.user.id);
   }
 
+  @Patch(':id/reverse')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  reverse(@Param('id') id: string, @Request() req: any) {
+    return this.svc.reverse(id, req.user.id);
+  }
+
   @Post(':id/lines')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   addLine(@Param('id') id: string, @Body() body: any, @Request() req: any) {
     return this.svc.addLine(id, body, req.user.id);
+  }
+
+  @Post('ap-payment-run')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  apPaymentRun(
+    @Body() body: { invoiceIds: string[]; paymentDate?: string; journalId?: string },
+    @Request() req: any,
+  ) {
+    return this.svc.apPaymentRun(
+      body.invoiceIds,
+      body.paymentDate ? new Date(body.paymentDate) : new Date(),
+      body.journalId,
+      req.user.id,
+    );
   }
 
   // ponytail: static route before dynamic

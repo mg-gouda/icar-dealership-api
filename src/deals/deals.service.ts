@@ -18,6 +18,97 @@ export class DealsService {
     private mail: MailService,
   ) {}
 
+  // ponytail: structured installment statement for a deal
+  async getStatement(dealId: string) {
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id: dealId },
+      include: {
+        vehicle: { select: { make: true, model: true, year: true } },
+        customer: { select: { name: true, phone: true, email: true } },
+        installmentPlan: {
+          include: {
+            installments: {
+              orderBy: { dueDate: 'asc' },
+              include: {
+                payment: {
+                  select: { id: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!deal.installmentPlan) {
+      throw new BadRequestException(
+        'Deal has no installment plan — statement only available for DEALERSHIP_INSTALLMENT deals',
+      );
+    }
+
+    const plan = deal.installmentPlan;
+    const v = deal.vehicle;
+    const now = new Date();
+
+    const installments = plan.installments.map((line) => ({
+      id: line.id,
+      dueDate: line.dueDate,
+      amount: Number(line.totalDue),
+      status: line.status,
+      paidAt: line.paidDate,
+      collectedBy: null as string | null, // no collector FK on InstallmentLine
+    }));
+
+    const totalPaid = plan.installments
+      .filter((l) => l.status === 'PAID')
+      .reduce((s, l) => s + Number(l.paidAmount), 0);
+
+    const totalOutstanding = plan.installments
+      .filter((l) => l.status !== 'PAID')
+      .reduce((s, l) => s + Number(l.totalDue) - Number(l.paidAmount), 0);
+
+    const overdueLines = plan.installments.filter(
+      (l) => l.status === 'OVERDUE' || (l.status === 'PENDING' && l.dueDate < now),
+    );
+
+    const nextDueLine = plan.installments.find(
+      (l) => l.status === 'PENDING' || l.status === 'PARTIAL',
+    );
+
+    return {
+      deal: {
+        id: deal.id,
+        vehicleDesc: v ? `${v.year} ${v.make} ${v.model}` : '',
+        salePrice: Number(deal.salePrice),
+        purchaseMethod: deal.purchaseMethod,
+      },
+      customer: {
+        name: deal.customer.name,
+        phone: deal.customer.phone,
+        email: deal.customer.email,
+      },
+      installmentPlan: {
+        totalAmount: Number(plan.totalPayable),
+        monthlyAmount: plan.monthlyInstallment ? Number(plan.monthlyInstallment) : null,
+        durationMonths: plan.durationMonths,
+        interestRate: Number(plan.interestRate),
+        startDate: plan.startDate,
+        installments,
+      },
+      summary: {
+        totalPaid,
+        totalOutstanding,
+        nextDueDate: nextDueLine?.dueDate ?? null,
+        nextDueAmount: nextDueLine ? Number(nextDueLine.totalDue) : null,
+        overdueCount: overdueLines.length,
+        overdueAmount: overdueLines.reduce(
+          (s, l) => s + Number(l.totalDue) - Number(l.paidAmount),
+          0,
+        ),
+      },
+    };
+  }
+
   async findAll(query: {
     locationId?: string;
     status?: string;
@@ -810,6 +901,33 @@ export class DealsService {
       userId,
     });
     return { deleted: true };
+  }
+
+  async bulk(ids: string[], action: string, value: string | undefined, userId: string) {
+    if (!ids?.length) throw new BadRequestException('ids required');
+    const allowed = ['ASSIGN_REP', 'CHANGE_STATUS', 'CANCEL'];
+    if (!allowed.includes(action)) throw new BadRequestException(`action must be one of ${allowed.join(', ')}`);
+
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const id of ids) {
+      try {
+        if (action === 'ASSIGN_REP') {
+          if (!value) throw new BadRequestException('value (salesRepId) required');
+          await this.prisma.deal.update({ where: { id }, data: { salesRepId: value } });
+          await this.audit.log({ entity: 'Deal', entityId: id, action: 'BULK_ASSIGN_REP', userId, newValue: { salesRepId: value } });
+        } else if (action === 'CANCEL') {
+          await this.cancel(id, userId);
+        } else if (action === 'CHANGE_STATUS') {
+          if (!value) throw new BadRequestException('value (status) required');
+          await this.prisma.deal.update({ where: { id }, data: { status: value as any } });
+          await this.audit.log({ entity: 'Deal', entityId: id, action: 'BULK_STATUS_CHANGE', userId, newValue: { status: value } });
+        }
+        results.push({ id, ok: true });
+      } catch (e: any) {
+        results.push({ id, ok: false, error: e?.message ?? 'unknown' });
+      }
+    }
+    return { processed: results.length, succeeded: results.filter((r) => r.ok).length, results };
   }
 
   // ponytail: bounds enforcement per spec 09 — SALES_REP/MANAGER can't deviate >X% from location default

@@ -860,6 +860,37 @@ export class PostingService {
     });
   }
 
+  async reverseInvoice(invoiceId: string): Promise<void> {
+    const inv = await this.prisma.invoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      include: { journalEntry: { include: { lines: true } }, journal: true },
+    });
+    if (!inv.journalEntry) throw new BadRequestException('No journal entry found for this invoice');
+    const now = new Date();
+    await this.assertFiscalPeriodOpen(now, inv.journal.companyId);
+    await this.prisma.$transaction(async (tx) => {
+      // ponytail: reversal = mirror lines (swap debit/credit)
+      await tx.journalEntry.create({
+        data: {
+          journalId: inv.journalId,
+          date: now,
+          ref: `REV-${invoiceId.slice(-8).toUpperCase()}`,
+          status: 'POSTED',
+          lines: {
+            create: inv.journalEntry!.lines.map((l) => ({
+              accountId: l.accountId,
+              debit: l.credit,
+              credit: l.debit,
+              partnerId: l.partnerId ?? undefined,
+              label: `Reversal: ${l.label ?? ''}`,
+            })),
+          },
+        },
+      });
+      await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'CANCELLED' } });
+    });
+  }
+
   async postPayment(paymentId: string): Promise<void> {
     const p = await this.prisma.payment.findUniqueOrThrow({
       where: { id: paymentId },
@@ -899,9 +930,11 @@ export class PostingService {
         },
       ];
     } else {
-      const accounts = await this.resolveAccounts(p.journal.companyId, [
-        '2100',
-      ]);
+      // ponytail: vendor payment — if WHT present, split into AP / Bank / WHT Payable
+      const whtAmt = Number(p.whtAmount ?? 0);
+      const disbursement = Number(p.amount) - whtAmt;
+      const accountCodes = whtAmt > 0 ? ['2100', '2120'] : ['2100'];
+      const accounts = await this.resolveAccounts(p.journal.companyId, accountCodes);
       const bankAccountId = p.journal.defaultCreditAccountId;
       if (!bankAccountId)
         throw new BadRequestException(
@@ -918,9 +951,19 @@ export class PostingService {
         {
           accountId: bankAccountId,
           debit: 0,
-          credit: Number(p.amount),
+          credit: disbursement,
           label: p.memo ?? `Payment ${paymentId.slice(-8)}`,
         },
+        ...(whtAmt > 0
+          ? [
+              {
+                accountId: accounts['2120'],
+                debit: 0,
+                credit: whtAmt,
+                label: 'WHT Payable',
+              },
+            ]
+          : []),
       ];
     }
 
@@ -939,6 +982,19 @@ export class PostingService {
         where: { id: paymentId },
         data: { status: 'POSTED' },
       });
+      // ponytail: CASH deal → mark commissions PAYABLE on first customer payment posted
+      if (p.dealId && isInbound) {
+        const deal = await tx.deal.findUnique({
+          where: { id: p.dealId },
+          select: { purchaseMethod: true },
+        });
+        if (deal?.purchaseMethod === 'CASH') {
+          await tx.dealCommission.updateMany({
+            where: { dealId: p.dealId, status: 'ACCRUED' },
+            data: { status: 'PAYABLE', payableAt: new Date() },
+          });
+        }
+      }
     });
   }
 
