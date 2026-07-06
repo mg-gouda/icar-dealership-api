@@ -21,6 +21,18 @@ import {
   FieldPolicyEntity,
   assertFieldWriteAccess,
 } from '../common/field-policies';
+import { CreateDealDto } from './dto/create-deal.dto';
+import { UpdateDealDto } from './dto/update-deal.dto';
+import { CreateInstallmentPlanDto } from './dto/installment-plan.dto';
+import {
+  CreateFinanceApplicationDto,
+  UpdateFinanceApplicationDto,
+  RecordBankApprovalDto,
+  AddDocumentDto,
+  UpdateDocumentDto,
+  AddCommissionSplitDto,
+  BulkDealActionDto,
+} from './dto/finance-application.dto';
 
 @ApiTags('Deals')
 @ApiBearerAuth()
@@ -43,7 +55,7 @@ export class DealsController {
 
   @Post('bulk')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  bulk(@Body() body: { ids: string[]; action: string; value?: string }, @Request() req: any) {
+  bulk(@Body() body: BulkDealActionDto, @Request() req: any) {
     return this.svc.bulk(body.ids, body.action, body.value, req.user.id);
   }
 
@@ -74,14 +86,14 @@ export class DealsController {
 
   @Post()
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: any, @Request() req: any) {
+  create(@Body() body: CreateDealDto, @Request() req: any) {
     const locationId = body.locationId ?? req.user.locationId;
     return this.svc.create({ ...body, locationId }, req.user.id);
   }
 
   @Patch(':id')
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  update(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+  update(@Param('id') id: string, @Body() body: UpdateDealDto, @Request() req: any) {
     assertFieldWriteAccess('Deal', body, req.user.role);
     return this.svc.update(id, body, req.user.id);
   }
@@ -102,7 +114,7 @@ export class DealsController {
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   addInstallmentPlan(
     @Param('id') id: string,
-    @Body() body: any,
+    @Body() body: CreateInstallmentPlanDto,
     @Request() req: any,
   ) {
     return this.svc.addInstallmentPlan(id, body, req.user.id);
@@ -112,13 +124,13 @@ export class DealsController {
 
   @Post(':id/finance-application')
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  createFinanceApplication(@Param('id') id: string, @Body() body: any) {
+  createFinanceApplication(@Param('id') id: string, @Body() body: CreateFinanceApplicationDto) {
     return this.svc.createFinanceApplication(id, body);
   }
 
   @Patch(':id/finance-application')
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  updateFinanceApplication(@Param('id') id: string, @Body() body: any) {
+  updateFinanceApplication(@Param('id') id: string, @Body() body: UpdateFinanceApplicationDto) {
     return this.svc.updateFinanceApplication(id, body);
   }
 
@@ -126,7 +138,7 @@ export class DealsController {
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   addDocument(
     @Param('id') id: string,
-    @Body() body: { documentType: string; fileUrl?: string; notes?: string },
+    @Body() body: AddDocumentDto,
   ) {
     return this.svc.addDocument(id, body);
   }
@@ -136,14 +148,14 @@ export class DealsController {
   updateDocument(
     @Param('id') id: string,
     @Param('docId') docId: string,
-    @Body() body: { status?: string; fileUrl?: string; notes?: string },
+    @Body() body: UpdateDocumentDto,
   ) {
     return this.svc.updateDocument(id, docId, body);
   }
 
   @Post(':id/finance-application/bank-approval')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  recordBankApproval(@Param('id') id: string, @Body() body: any) {
+  recordBankApproval(@Param('id') id: string, @Body() body: RecordBankApprovalDto) {
     return this.svc.recordBankApproval(id, body);
   }
 
@@ -179,7 +191,7 @@ export class DealsController {
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   addCommissionSplit(
     @Param('id') id: string,
-    @Body() body: any,
+    @Body() body: AddCommissionSplitDto,
     @Request() req: any,
   ) {
     return this.svc.addCommissionSplit(id, body, req.user.id);

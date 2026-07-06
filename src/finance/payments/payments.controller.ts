@@ -14,6 +14,7 @@ import { PaymentsService } from './payments.service';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { CreatePaymentDto, AllocatePaymentDto } from './dto/create-payment.dto';
 
 @ApiTags('Finance / WHT Categories')
 @ApiBearerAuth()
@@ -50,7 +51,7 @@ export class PaymentsController {
 
   @Post()
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: any, @Request() req: any) {
+  create(@Body() body: CreatePaymentDto, @Request() req: any) {
     return this.svc.create(body, req.user.id);
   }
 
@@ -70,7 +71,7 @@ export class PaymentsController {
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   allocate(
     @Param('id') id: string,
-    @Body() body: { invoiceId: string; amount: number },
+    @Body() body: AllocatePaymentDto,
     @Request() req: any,
   ) {
     return this.svc.allocate(id, body.invoiceId, body.amount, req.user.id);

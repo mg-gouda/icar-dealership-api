@@ -16,6 +16,8 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { FieldPolicyEntity } from '../common/field-policies';
+import { CreatePartnerDto } from './dto/create-partner.dto';
+import { UpdatePartnerDto } from './dto/update-partner.dto';
 
 @ApiTags('Partners')
 @ApiBearerAuth()
@@ -53,13 +55,13 @@ export class PartnersController {
 
   @Post()
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: any) {
+  create(@Body() body: CreatePartnerDto) {
     return this.prisma.partner.create({ data: body });
   }
 
   @Patch(':id')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  update(@Param('id') id: string, @Body() body: any) {
+  update(@Param('id') id: string, @Body() body: UpdatePartnerDto) {
     return this.prisma.partner.update({ where: { id }, data: body });
   }
 }

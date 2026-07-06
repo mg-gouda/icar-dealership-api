@@ -98,7 +98,7 @@ export class AppointmentsService {
     id: string,
     data: Partial<{
       status: string;
-      scheduledAt: Date;
+      scheduledAt: Date | string;
       assignedToUserId: string;
     }>,
   ) {

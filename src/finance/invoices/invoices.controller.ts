@@ -14,6 +14,9 @@ import { InvoicesService } from './invoices.service';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { AddInvoiceLineDto } from './dto/add-line.dto';
+import { ApPaymentRunDto } from './dto/ap-payment-run.dto';
 
 @ApiTags('Finance / Invoices')
 @ApiBearerAuth()
@@ -36,7 +39,7 @@ export class InvoicesController {
 
   @Post()
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: any, @Request() req: any) {
+  create(@Body() body: CreateInvoiceDto, @Request() req: any) {
     return this.svc.create(body, req.user.id);
   }
 
@@ -60,14 +63,14 @@ export class InvoicesController {
 
   @Post(':id/lines')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  addLine(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+  addLine(@Param('id') id: string, @Body() body: AddInvoiceLineDto, @Request() req: any) {
     return this.svc.addLine(id, body, req.user.id);
   }
 
   @Post('ap-payment-run')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   apPaymentRun(
-    @Body() body: { invoiceIds: string[]; paymentDate?: string; journalId?: string },
+    @Body() body: ApPaymentRunDto,
     @Request() req: any,
   ) {
     return this.svc.apPaymentRun(

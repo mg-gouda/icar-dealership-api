@@ -21,6 +21,8 @@ import {
   FieldPolicyEntity,
   assertFieldWriteAccess,
 } from '../common/field-policies';
+import { CreateVehicleDto } from './dto/create-vehicle.dto';
+import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 
 @ApiTags('vehicles')
 @ApiBearerAuth()
@@ -65,13 +67,13 @@ export class VehiclesController {
   @Post()
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   @LocationScope()
-  create(@Body() body: any) {
+  create(@Body() body: CreateVehicleDto) {
     return this.vehiclesService.create(body);
   }
 
   @Patch(':id')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  update(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+  update(@Param('id') id: string, @Body() body: UpdateVehicleDto, @Request() req: any) {
     assertFieldWriteAccess('Vehicle', body, req.user.role);
     return this.vehiclesService.update(id, body);
   }

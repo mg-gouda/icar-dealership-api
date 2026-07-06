@@ -15,6 +15,8 @@ import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { LocationScope } from '../common/decorators/location-scope.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 
 @ApiTags('Appointments')
 @ApiBearerAuth()
@@ -38,13 +40,13 @@ export class AppointmentsController {
 
   @Post()
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: any) {
+  create(@Body() body: CreateAppointmentDto) {
     return this.svc.create(body);
   }
 
   @Patch(':id')
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  update(@Param('id') id: string, @Body() body: any) {
+  update(@Param('id') id: string, @Body() body: UpdateAppointmentDto) {
     return this.svc.update(id, body);
   }
 

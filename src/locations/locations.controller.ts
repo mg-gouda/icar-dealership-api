@@ -13,6 +13,11 @@ import { LocationsService } from './locations.service';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { CreateLocationDto } from './dto/create-location.dto';
+import { UpdateLocationDto } from './dto/update-location.dto';
+import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
+import { UpdateSecuritySettingsDto } from './dto/update-security-settings.dto';
+import { UpdateIntegrationDto } from './dto/update-integration.dto';
 
 @ApiTags('Locations')
 @ApiBearerAuth()
@@ -35,7 +40,7 @@ export class LocationsController {
 
   @Post()
   @Roles('ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: any, @Request() req: any) {
+  create(@Body() body: CreateLocationDto, @Request() req: any) {
     return this.svc.create(
       { ...body, companyId: req.user.companyId },
       req.user.id,
@@ -44,7 +49,7 @@ export class LocationsController {
 
   @Patch(':id')
   @Roles('ADMIN', 'SUPER_ADMIN')
-  update(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+  update(@Param('id') id: string, @Body() body: UpdateLocationDto, @Request() req: any) {
     return this.svc.update(id, body, req.user.id);
   }
 
@@ -58,7 +63,7 @@ export class LocationsController {
 
   @Patch('company/profile')
   @Roles('ADMIN', 'SUPER_ADMIN')
-  updateCompanyProfile(@Body() body: any, @Request() req: any) {
+  updateCompanyProfile(@Body() body: UpdateCompanyProfileDto, @Request() req: any) {
     return this.svc.updateCompanyProfile(req.user.companyId, body, req.user.id);
   }
 
@@ -72,7 +77,7 @@ export class LocationsController {
 
   @Patch('settings/company')
   @Roles('SUPER_ADMIN')
-  updateSettingsCompany(@Body() body: any, @Request() req: any) {
+  updateSettingsCompany(@Body() body: UpdateCompanyProfileDto, @Request() req: any) {
     return this.svc.updateCompanyProfile(req.user.companyId, body, req.user.id);
   }
 
@@ -89,7 +94,7 @@ export class LocationsController {
 
   @Patch('settings/integrations/:service')
   @Roles('SUPER_ADMIN')
-  updateIntegration(@Param('service') service: string, @Body() body: any) {
+  updateIntegration(@Param('service') service: string, @Body() body: UpdateIntegrationDto) {
     // ponytail: store not implemented — return ack
     return { service, updated: true, connected: body.connected ?? false };
   }
@@ -106,7 +111,7 @@ export class LocationsController {
 
   @Patch('settings/security')
   @Roles('SUPER_ADMIN')
-  updateSecuritySettings(@Body() body: any) {
+  updateSecuritySettings(@Body() body: UpdateSecuritySettingsDto) {
     return { updated: true, ...body };
   }
 }

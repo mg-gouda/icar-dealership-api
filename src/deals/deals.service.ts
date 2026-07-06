@@ -411,7 +411,7 @@ export class DealsService {
       calculationMethod: string;
       totalPayable: number;
       monthlyInstallment?: number;
-      startDate: Date;
+      startDate: Date | string;
     },
     userId: string,
   ) {

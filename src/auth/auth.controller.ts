@@ -16,6 +16,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
+import { CustomerRegisterDto } from './dto/customer-register.dto';
 import { FIELD_POLICIES, roleAtLeast } from '../common/field-policies';
 import type { Role } from '../common/field-policies';
 
@@ -196,7 +197,7 @@ export class AuthController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'B2C customer self-registration' })
   async customerRegister(
-    @Body() body: { name: string; email: string; password: string },
+    @Body() body: CustomerRegisterDto,
   ) {
     return this.authService.customerRegister(
       body.name,
