@@ -174,6 +174,25 @@ export class PartsService {
     return updated;
   }
 
+  async findByBarcode(code: string) {
+    // Search partNumber, barcodeValue, then oemNumber — first match wins
+    const part = await this.prisma.part.findFirst({
+      where: {
+        isActive: true,
+        OR: [
+          { partNumber: code },
+          { barcodeValue: code },
+          { oemNumber: code },
+        ],
+      },
+      include: {
+        supplier: { select: { id: true, name: true } },
+        location: { select: { id: true, name: true } },
+      },
+    });
+    return part ?? null;
+  }
+
   async softDelete(id: string, userId: string) {
     await this.prisma.part.findUniqueOrThrow({ where: { id } });
     const updated = await this.prisma.part.update({

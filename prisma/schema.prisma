@@ -1538,6 +1538,7 @@ model Part {
   id            String             @id @default(cuid())
   partNumber    String             @unique
   oemNumber     String?
+  barcodeValue  String?
   name          String
   description   String?
   category      String?

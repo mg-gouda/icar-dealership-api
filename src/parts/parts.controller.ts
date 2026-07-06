@@ -29,6 +29,14 @@ export class PartsController {
     return this.svc.findAll(q);
   }
 
+  // ponytail: static route before :id
+  @Get('by-scan')
+  @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  findByBarcode(@Query('code') code: string) {
+    if (!code) return null;
+    return this.svc.findByBarcode(code.trim());
+  }
+
   @Get(':id')
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   findById(@Param('id') id: string) {
