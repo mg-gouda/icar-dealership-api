@@ -449,8 +449,9 @@ export class DealsService {
         const interestPortion = Math.round(balance * monthlyRate * 100) / 100;
         const principalPortion =
           Math.round((pmt - interestPortion) * 100) / 100;
+        // F-10: due date starts 1 month after startDate
         const dueDate = new Date(data.startDate);
-        dueDate.setMonth(dueDate.getMonth() + i);
+        dueDate.setMonth(dueDate.getMonth() + i + 1);
         lines.push({
           installmentNumber: i + 1,
           dueDate,
@@ -464,21 +465,27 @@ export class DealsService {
         balance -= principalPortion;
       }
 
-      // Adjust last line for rounding residual
-      const totalPrincipal = lines.reduce((s, l) => s + l.principalPortion, 0);
-      const residual = Math.round((principal - totalPrincipal) * 100) / 100;
-      if (Math.abs(residual) > 0.001) {
-        lines[lines.length - 1].principalPortion += residual;
-        lines[lines.length - 1].totalDue += residual;
+      // F-9: Last line absorbs rounding residual for both principal and interest
+      if (lines.length > 0) {
+        const prevPrincipal = lines.slice(0, -1).reduce((s, l) => s + l.principalPortion, 0);
+        const prevInterest = lines.slice(0, -1).reduce((s, l) => s + l.interestPortion, 0);
+        const totalInterest = data.totalPayable - principal;
+        const last = lines[lines.length - 1];
+        last.principalPortion = Math.round((principal - prevPrincipal) * 100) / 100;
+        last.interestPortion = Math.round((totalInterest - prevInterest) * 100) / 100;
+        last.totalDue = Math.round((last.principalPortion + last.interestPortion) * 100) / 100;
       }
     } else {
       // Flat calc -- even split of principal/interest across months
+      const totalInterest = data.totalPayable - principal;
       for (let i = 0; i < n; i++) {
+        // F-10: due date starts 1 month after startDate
         const dueDate = new Date(data.startDate);
-        dueDate.setMonth(dueDate.getMonth() + i);
-        const principalPortion = principal / n;
-        const interestPortion = (data.totalPayable - principal) / n;
-        const totalDue = principalPortion + interestPortion;
+        dueDate.setMonth(dueDate.getMonth() + i + 1);
+        // F-9: round each line to 2 decimal places
+        const principalPortion = Math.round((principal / n) * 100) / 100;
+        const interestPortion = Math.round((totalInterest / n) * 100) / 100;
+        const totalDue = Math.round((principalPortion + interestPortion) * 100) / 100;
         lines.push({
           installmentNumber: i + 1,
           dueDate,
@@ -488,6 +495,15 @@ export class DealsService {
           status: 'PENDING',
           paidAmount: 0,
         });
+      }
+      // F-9: Last line absorbs rounding residual
+      if (lines.length > 0) {
+        const prevPrincipal = lines.slice(0, -1).reduce((s, l) => s + l.principalPortion, 0);
+        const prevInterest = lines.slice(0, -1).reduce((s, l) => s + l.interestPortion, 0);
+        const last = lines[lines.length - 1];
+        last.principalPortion = Math.round((principal - prevPrincipal) * 100) / 100;
+        last.interestPortion = Math.round((totalInterest - prevInterest) * 100) / 100;
+        last.totalDue = Math.round((last.principalPortion + last.interestPortion) * 100) / 100;
       }
     }
 

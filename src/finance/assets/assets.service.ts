@@ -302,7 +302,7 @@ export class AssetsService {
         }
         // Gain: CR Other Income (if gain > 0) / Loss: DR Expense (if loss > 0)
         if (!gainLoss.isZero()) {
-          const glAccCode = gainLoss.gt(0) ? '4000' : '6700';
+          const glAccCode = gainLoss.gt(0) ? '4900' : '6700';
           const glAcc = await tx.account.findFirst({
             where: { code: glAccCode, companyId: journal.companyId },
           });

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -15,6 +15,7 @@ export class AuditController {
   @Get()
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   async list(
+    @Req() req: any,
     @Query('entityType') entityType?: string,
     @Query('entityId') entityId?: string,
     @Query('action') action?: string,
@@ -39,6 +40,16 @@ export class AuditController {
       where.createdAt = {
         ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
         ...(dateTo ? { lte: new Date(dateTo) } : {}),
+      };
+    }
+
+    // B-18: FINANCE role sees only finance-related entity types
+    const user = (req as any).user;
+    if (user?.role === 'FINANCE') {
+      where.entityType = {
+        in: ['Invoice', 'Payment', 'JournalEntry', 'Account', 'Asset',
+             'BankStatement', 'BankReconciliation', 'FiscalYear', 'Currency',
+             'Commission', 'TaxRate'],
       };
     }
 
