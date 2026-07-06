@@ -217,6 +217,21 @@ async function main() {
     },
   });
 
+  // ── 5b. WHT Categories ─────────────────────────────────────────────────────
+  const whtCategories = [
+    { id: 'wht-supplies', name: 'Supplies', rate: 1.0, companyId: company.id },
+    { id: 'wht-contractors', name: 'Contractors', rate: 3.0, companyId: company.id },
+    { id: 'wht-services', name: 'Professional Services', rate: 5.0, companyId: company.id },
+    { id: 'wht-commercial', name: 'Commercial Activities', rate: 0.5, companyId: company.id },
+  ];
+  for (const wht of whtCategories) {
+    await prisma.whtCategory.upsert({
+      where: { id: wht.id },
+      update: {},
+      create: wht,
+    });
+  }
+
   // ── 6. Payment Terms ──────────────────────────────────────────────────────
   const dueOnReceipt = await prisma.paymentTerm.upsert({
     where: { id: 'pt-due-on-receipt' },
@@ -441,6 +456,33 @@ async function main() {
       },
     });
   }
+
+  // ── 8c. Bank Accounts ─────────────────────────────────────────────────────
+  await prisma.bankAccount.upsert({
+    where: { id: 'bank-cai' },
+    update: {},
+    create: {
+      id: 'bank-cai',
+      name: 'Cairo Main Operating Account',
+      accountNumber: '001-CAI-001',
+      bankName: 'Commercial International Bank',
+      currencyId: egp.id,
+    },
+  });
+  await prisma.bankAccount.upsert({
+    where: { id: 'bank-alx' },
+    update: {},
+    create: {
+      id: 'bank-alx',
+      name: 'Alexandria Main Operating Account',
+      accountNumber: '001-ALX-001',
+      bankName: 'Commercial International Bank',
+      currencyId: egp.id,
+    },
+  });
+  // Link bank journals to bank accounts
+  await prisma.journal.update({ where: { id: 'j-bank-cai' }, data: { bankAccountId: 'bank-cai' } });
+  await prisma.journal.update({ where: { id: 'j-bank-alx' }, data: { bankAccountId: 'bank-alx' } });
 
   // Company-level general journal
   await prisma.journal.upsert({

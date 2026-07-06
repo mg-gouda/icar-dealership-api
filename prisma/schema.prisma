@@ -212,6 +212,7 @@ enum CommissionTierMetric {
 }
 
 enum CommissionStatus {
+  PENDING
   ACCRUED
   PAYABLE
   PAID
@@ -296,6 +297,16 @@ model Company {
   journals    Journal[]
   fiscalYears FiscalYear[]
 
+  serviceOrders     ServiceOrder[]     @relation("ServiceOrderCompany")
+  parts             Part[]             @relation("PartCompany")
+  salesTargets      SalesTarget[]      @relation("SalesTargetCompany")
+  whatsAppMessages  WhatsAppMessage[]  @relation("WhatsAppMessageCompany")
+  importShipments   ImportShipment[]   @relation("ImportShipmentCompany")
+  pettyCashFunds    PettyCashFund[]    @relation("PettyCashFundCompany")
+  pettyCashVouchers PettyCashVoucher[] @relation("PettyCashVoucherCompany")
+  floorPlanNotes    FloorPlanNote[]    @relation("FloorPlanNoteCompany")
+  whtCategories     WhtCategory[]      @relation("WhtCategoryCompany")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -321,8 +332,8 @@ model Location {
   defaultTax   Tax?    @relation(fields: [defaultTaxId], references: [id])
 
   // Egypt-specific defaults, applied to Deal pricing unless overridden on the Vehicle/Deal
-  defaultAdminFee     Decimal? @db.Decimal(12, 2)
-  defaultInsuranceFee Decimal? @db.Decimal(12, 2)
+  defaultAdminFee     Decimal? @db.Decimal(14, 2)
+  defaultInsuranceFee Decimal? @db.Decimal(14, 2)
 
   users           User[]
   vehicles        Vehicle[]
@@ -400,7 +411,7 @@ model User {
 model WorkingHours {
   id        String @id @default(cuid())
   userId    String
-  user      User   @relation(fields: [userId], references: [id])
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   dayOfWeek Int // 0 = Sunday ... 6 = Saturday
   startTime String // "09:00"
   endTime   String // "17:00"
@@ -467,8 +478,8 @@ model Vehicle {
   year         Int
   trim         String?
   mileage      Int?
-  price        Decimal       @db.Decimal(12, 2)
-  cost         Decimal?      @db.Decimal(12, 2)
+  price        Decimal       @db.Decimal(14, 2)
+  cost         Decimal?      @db.Decimal(14, 2)
   status       VehicleStatus @default(IN_TRANSIT)
   locationId   String
   location     Location      @relation(fields: [locationId], references: [id])
@@ -479,8 +490,8 @@ model Vehicle {
   description  String?
 
   // Egypt-specific: overrides Location default fees for this specific vehicle
-  adminFeeOverride     Decimal? @db.Decimal(12, 2)
-  insuranceFeeOverride Decimal? @db.Decimal(12, 2)
+  adminFeeOverride     Decimal? @db.Decimal(14, 2)
+  insuranceFeeOverride Decimal? @db.Decimal(14, 2)
 
   images   VehicleImage[]
   features VehicleFeature[]
@@ -511,7 +522,7 @@ model Vehicle {
 model VehicleImage {
   id        String  @id @default(cuid())
   vehicleId String
-  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   url       String
   order     Int     @default(0)
 }
@@ -519,7 +530,7 @@ model VehicleImage {
 model VehicleFeature {
   id        String  @id @default(cuid())
   vehicleId String
-  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   feature   String
 }
 
@@ -581,7 +592,7 @@ model Deal {
 
   tradeInVehicleId String?  @unique
   tradeInVehicle   Vehicle? @relation("TradeInVehicle", fields: [tradeInVehicleId], references: [id])
-  tradeInValue     Decimal? @db.Decimal(12, 2)
+  tradeInValue     Decimal? @db.Decimal(14, 2)
   tradeInMake      String?
   tradeInModel     String?
   tradeInYear      Int?
@@ -595,14 +606,14 @@ model Deal {
   locationId String
   location   Location @relation(fields: [locationId], references: [id])
 
-  salePrice Decimal @db.Decimal(12, 2)
+  salePrice Decimal @db.Decimal(14, 2)
 
   // Egypt-specific: how the customer is paying
   purchaseMethod PurchaseMethod @default(CASH)
 
   // Final fee amounts for this deal — pre-filled from Vehicle override -> Location default, editable
-  adminFee     Decimal? @db.Decimal(12, 2)
-  insuranceFee Decimal? @db.Decimal(12, 2)
+  adminFee     Decimal? @db.Decimal(14, 2)
+  insuranceFee Decimal? @db.Decimal(14, 2)
 
   financeApplication FinanceApplication?
   installmentPlan    InstallmentPlan?
@@ -632,7 +643,7 @@ model FinanceApplication {
   lenderName       String?
   termMonths       Int?
   apr              Decimal? @db.Decimal(5, 2)
-  monthlyPayment   Decimal? @db.Decimal(12, 2)
+  monthlyPayment   Decimal? @db.Decimal(14, 2)
 
   // --- Egypt bank financing ---
   bankName            String?
@@ -743,14 +754,15 @@ model Currency {
   decimalPlaces Int     @default(2)
   active        Boolean @default(true)
 
-  rates          CurrencyRate[]
-  companies      Company[]
-  accounts       Account[]
-  journals       Journal[]
-  partners       Partner[]
-  invoices       Invoice[]
-  journalEntries JournalEntry[]
-  bankAccounts   BankAccount[]
+  rates             CurrencyRate[]
+  companies         Company[]
+  accounts          Account[]
+  journals          Journal[]
+  partners          Partner[]
+  invoices          Invoice[]
+  journalEntries    JournalEntry[]
+  journalEntryLines JournalEntryLine[] @relation("JournalEntryLineCurrency")
+  bankAccounts      BankAccount[]
 }
 
 model CurrencyRate {
@@ -848,6 +860,7 @@ model Tax {
   computation     TaxComputation @default(PERCENT)
   scope           TaxScope       @default(SALE)
   includedInPrice Boolean        @default(false)
+  sequence        Int            @default(10)
 
   taxGroupId String?
   taxGroup   TaxGroup? @relation(fields: [taxGroupId], references: [id])
@@ -883,7 +896,7 @@ model PaymentTerm {
 model PaymentTermLine {
   id            String      @id @default(cuid())
   paymentTermId String
-  paymentTerm   PaymentTerm @relation(fields: [paymentTermId], references: [id])
+  paymentTerm   PaymentTerm @relation(fields: [paymentTermId], references: [id], onDelete: Cascade)
 
   daysDue    Int
   percentage Decimal @db.Decimal(5, 2)
@@ -897,6 +910,11 @@ model FiscalYear {
   startDate DateTime
   endDate   DateTime
   lockDate  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
 }
 
 model AnalyticAccount {
@@ -972,7 +990,8 @@ model JournalEntryLine {
 
   // for foreign-currency lines
   currencyId     String?
-  amountCurrency Decimal? @db.Decimal(14, 2)
+  currency       Currency? @relation("JournalEntryLineCurrency", fields: [currencyId], references: [id])
+  amountCurrency Decimal?  @db.Decimal(14, 2)
 
   analyticAccountId String?
   analyticAccount   AnalyticAccount? @relation(fields: [analyticAccountId], references: [id])
@@ -988,6 +1007,7 @@ model JournalEntryLine {
 
 model Invoice {
   id     String      @id @default(cuid())
+  number String?     @unique
   type   InvoiceType
   status MoveStatus  @default(DRAFT)
 
@@ -1038,6 +1058,8 @@ model Invoice {
 
   @@index([partnerId, status])
   @@index([type, paymentStatus])
+  @@index([journalId])
+  @@index([date])
 }
 
 model InvoiceLine {
@@ -1063,10 +1085,13 @@ model InvoiceLine {
   account   Account @relation(fields: [accountId], references: [id])
 
   subtotal Decimal @db.Decimal(14, 2)
+
+  @@index([invoiceId])
 }
 
 model Payment {
   id     String      @id @default(cuid())
+  number String?     @unique
   type   PaymentType
   status MoveStatus  @default(DRAFT)
 
@@ -1096,6 +1121,8 @@ model Payment {
   updatedAt DateTime @updatedAt
 
   @@index([partnerId, type])
+  @@index([journalId])
+  @@index([date])
 }
 
 model PaymentAllocation {
@@ -1108,6 +1135,7 @@ model PaymentAllocation {
 
   amount Decimal @db.Decimal(14, 2)
 
+  @@index([paymentId])
   @@index([invoiceId])
 }
 
@@ -1192,12 +1220,14 @@ model BankStatement {
   lines BankStatementLine[]
 
   createdAt DateTime @default(now())
+
+  @@index([bankAccountId])
 }
 
 model BankStatementLine {
   id              String        @id @default(cuid())
   bankStatementId String
-  bankStatement   BankStatement @relation(fields: [bankStatementId], references: [id])
+  bankStatement   BankStatement @relation(fields: [bankStatementId], references: [id], onDelete: Cascade)
 
   date        DateTime
   description String
@@ -1206,6 +1236,8 @@ model BankStatementLine {
   reconciled  Boolean  @default(false)
 
   reconciliations Reconciliation[]
+
+  @@index([bankStatementId])
 }
 
 model Reconciliation {
@@ -1288,6 +1320,9 @@ model PurchaseOrder {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([partnerId])
+  @@index([locationId])
 }
 
 model PurchaseOrderLine {
@@ -1320,6 +1355,8 @@ model Receipt {
   vendorBills Invoice[]
 
   createdAt DateTime @default(now())
+
+  @@index([purchaseOrderId])
 }
 
 model ReceiptLine {
@@ -1334,6 +1371,8 @@ model ReceiptLine {
   vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
 
   quantityReceived Decimal @db.Decimal(10, 2)
+
+  @@index([receiptId])
 }
 
 model RecurringJournalEntryTemplate {
@@ -1354,7 +1393,7 @@ model RecurringJournalEntryTemplate {
 model RecurringJournalEntryTemplateLine {
   id         String                        @id @default(cuid())
   templateId String
-  template   RecurringJournalEntryTemplate @relation(fields: [templateId], references: [id])
+  template   RecurringJournalEntryTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   accountId String
   account   Account @relation(fields: [accountId], references: [id])
@@ -1371,7 +1410,7 @@ model CommissionPlan {
   active    Boolean             @default(true)
 
   // Used for FLAT_AMOUNT / PERCENT_OF_SALE_PRICE / PERCENT_OF_GROSS_PROFIT
-  flatAmount Decimal? @db.Decimal(12, 2)
+  flatAmount Decimal? @db.Decimal(14, 2)
   percentage Decimal? @db.Decimal(5, 2)
 
   // Scoping — narrower plans should be checked first by the resolution logic
@@ -1400,7 +1439,7 @@ model CommissionPlan {
 model CommissionTier {
   id               String         @id @default(cuid())
   commissionPlanId String
-  commissionPlan   CommissionPlan @relation(fields: [commissionPlanId], references: [id])
+  commissionPlan   CommissionPlan @relation(fields: [commissionPlanId], references: [id], onDelete: Cascade)
 
   // Inclusive lower bound on the tierMetric for the period; null upper bound = no cap
   minValue Decimal  @db.Decimal(14, 2)
@@ -1408,7 +1447,7 @@ model CommissionTier {
 
   // How this tier's rate is interpreted
   rateType  CommissionBasisType // FLAT_AMOUNT, PERCENT_OF_SALE_PRICE, or PERCENT_OF_GROSS_PROFIT
-  rateValue Decimal             @db.Decimal(12, 2)
+  rateValue Decimal             @db.Decimal(14, 2)
 
   @@index([commissionPlanId])
 }
@@ -1505,6 +1544,7 @@ model ServiceOrder {
   deal          Deal?              @relation(fields: [dealId], references: [id])
   lines         ServiceOrderLine[]
   companyId     String
+  company       Company            @relation("ServiceOrderCompany", fields: [companyId], references: [id])
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
@@ -1553,6 +1593,7 @@ model Part {
   supplier      Partner?           @relation("PartSupplier", fields: [supplierId], references: [id])
   serviceLines  ServiceOrderLine[]
   companyId     String
+  company       Company            @relation("PartCompany", fields: [companyId], references: [id])
   isActive      Boolean            @default(true)
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
@@ -1574,6 +1615,7 @@ model SalesTarget {
   targetUnits   Int      @default(0)
   targetRevenue Decimal  @default(0) @db.Decimal(14, 2)
   companyId     String
+  company       Company  @relation("SalesTargetCompany", fields: [companyId], references: [id])
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -1598,6 +1640,7 @@ model WhatsAppMessage {
   externalId String? // WhatsApp message ID from API
   sentAt     DateTime         @default(now())
   companyId  String
+  company    Company          @relation("WhatsAppMessageCompany", fields: [companyId], references: [id])
   locationId String?
 
   @@index([leadId])
@@ -1624,6 +1667,7 @@ model ImportShipment {
   status            ShipmentStatus          @default(IN_TRANSIT)
   vehicles          ImportShipmentVehicle[]
   companyId         String
+  company           Company                 @relation("ImportShipmentCompany", fields: [companyId], references: [id])
   locationId        String
   location          Location                @relation(fields: [locationId], references: [id])
   createdAt         DateTime                @default(now())
@@ -1660,6 +1704,7 @@ model PettyCashFund {
   custodian   User               @relation("PettyCashCustodian", fields: [custodianId], references: [id])
   vouchers    PettyCashVoucher[]
   companyId   String
+  company     Company            @relation("PettyCashFundCompany", fields: [companyId], references: [id])
   isActive    Boolean            @default(true)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
@@ -1684,6 +1729,7 @@ model PettyCashVoucher {
   journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
   voucherDate    DateTime      @default(now())
   companyId      String
+  company        Company       @relation("PettyCashVoucherCompany", fields: [companyId], references: [id])
   createdAt      DateTime      @default(now())
 
   @@index([fundId])
@@ -1707,6 +1753,7 @@ model FloorPlanNote {
   paidOffDate     DateTime?
   paidOffAmount   Decimal?        @db.Decimal(14, 2)
   companyId       String
+  company         Company         @relation("FloorPlanNoteCompany", fields: [companyId], references: [id])
   locationId      String
   location        Location        @relation(fields: [locationId], references: [id])
   createdAt       DateTime        @default(now())
@@ -1725,6 +1772,7 @@ model WhtCategory {
   rate        Decimal   @db.Decimal(5, 2)
   description String?
   companyId   String
+  company     Company   @relation("WhtCategoryCompany", fields: [companyId], references: [id])
   isActive    Boolean   @default(true)
   payments    Payment[]
   createdAt   DateTime  @default(now())
