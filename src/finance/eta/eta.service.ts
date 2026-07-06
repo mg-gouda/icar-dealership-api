@@ -7,8 +7,37 @@ export class EtaService {
   private readonly logger = new Logger(EtaService.name);
   private readonly etaApiUrl =
     process.env.ETA_API_URL ?? 'https://api.invoicing.eta.gov.eg/api/v1';
+  private readonly etaIdUrl =
+    process.env.ETA_ID_URL ?? 'https://id.invoicing.eta.gov.eg/connect/token';
   private readonly etaClientId = process.env.ETA_CLIENT_ID ?? '';
   private readonly etaClientSecret = process.env.ETA_CLIENT_SECRET ?? '';
+
+  // ponytail: cache token; re-fetch 60s before expiry
+  private cachedToken: { value: string; expiresAt: number } | null = null;
+
+  private async getAccessToken(): Promise<string> {
+    const now = Date.now();
+    if (this.cachedToken && this.cachedToken.expiresAt > now + 60_000) {
+      return this.cachedToken.value;
+    }
+    const body = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: this.etaClientId,
+      client_secret: this.etaClientSecret,
+    });
+    const res = await fetch(this.etaIdUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`ETA token fetch failed (${res.status}): ${err}`);
+    }
+    const json = (await res.json()) as { access_token: string; expires_in: number };
+    this.cachedToken = { value: json.access_token, expiresAt: now + json.expires_in * 1000 };
+    return this.cachedToken.value;
+  }
 
   constructor(
     private prisma: PrismaService,
@@ -127,13 +156,14 @@ export class EtaService {
       const doc = await this.buildEtaDocument(invoiceId);
 
       // TODO: add HMAC/certificate signing here once ETA device certificate is issued
+      const token = await this.getAccessToken();
       const response = await fetch(
         `${this.etaApiUrl}/documentsubmissions`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.etaClientId}:${this.etaClientSecret}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ documents: [doc] }),
         },

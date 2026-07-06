@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import Decimal from 'decimal.js';
 
 const VAT_RATE = 0.14;
 
@@ -10,6 +11,25 @@ const VAT_RATE = 0.14;
 @Injectable()
 export class PostingService {
   constructor(private prisma: PrismaService) {}
+
+  // -- FIX C6: Balance validation before every journal entry --
+  private assertBalanced(
+    lines: Array<{ debit: number | Decimal; credit: number | Decimal }>,
+  ) {
+    const totalDebit = lines.reduce(
+      (s, l) => s.plus(new Decimal(l.debit.toString())),
+      new Decimal(0),
+    );
+    const totalCredit = lines.reduce(
+      (s, l) => s.plus(new Decimal(l.credit.toString())),
+      new Decimal(0),
+    );
+    if (!totalDebit.equals(totalCredit)) {
+      throw new Error(
+        `Journal entry is unbalanced: DR ${totalDebit} ≠ CR ${totalCredit}`,
+      );
+    }
+  }
 
   // -- Deal Finalize --
 
@@ -68,7 +88,7 @@ export class PostingService {
     const analyticAccountId = deal.location.analyticAccount?.id;
 
     await this.prisma.$transaction(async (tx) => {
-      // 1. Invoice GL entry (SALE journal)
+      // 1. Sale GL entry lines (SALE journal)
       // DR: AR 1300 / CR: Vehicle Sales Income 4100 + VAT Payable 2200 + Admin Fee 4210 + Insurance 4220
       const saleLines = [
         {
@@ -120,6 +140,7 @@ export class PostingService {
           : []),
       ];
 
+      this.assertBalanced(saleLines);
       await tx.journalEntry.create({
         data: {
           journalId: saleJournal.id,
@@ -136,6 +157,23 @@ export class PostingService {
       // DR: COGS-Vehicle 5100 / CR: Vehicle Inventory 1400 or 1410
       if (vehicleCost > 0) {
         // ponytail: no `condition` field on Vehicle; use inventory account 1400
+        const cogsLines = [
+          {
+            accountId: accounts['5100'],
+            debit: vehicleCost,
+            credit: 0,
+            label: 'COGS - Vehicle',
+            analyticAccountId,
+          },
+          {
+            accountId: accounts['1400'],
+            debit: 0,
+            credit: vehicleCost,
+            label: 'Vehicle Inventory',
+            analyticAccountId,
+          },
+        ];
+        this.assertBalanced(cogsLines);
         await tx.journalEntry.create({
           data: {
             journalId: generalJournal.id,
@@ -143,28 +181,14 @@ export class PostingService {
             ref: `COGS-${dealId.slice(-8).toUpperCase()}`,
             status: 'POSTED',
             lines: {
-              create: [
-                {
-                  accountId: accounts['5100'],
-                  debit: vehicleCost,
-                  credit: 0,
-                  label: 'COGS - Vehicle',
-                  analyticAccountId,
-                },
-                {
-                  accountId: accounts['1400'],
-                  debit: 0,
-                  credit: vehicleCost,
-                  label: 'Vehicle Inventory',
-                  analyticAccountId,
-                },
-              ],
+              create: cogsLines,
             },
           },
         });
       }
 
-      // 3. Create POSTED invoice for the deal (finance visibility + document trail)
+      // 3. Create DRAFT invoice for the deal (finance reviews + posts)
+      // FIX C5: was POSTED → now DRAFT so finance team must explicitly post
       const partnerId = deal.customer.partnerId;
       if (!partnerId) {
         throw new BadRequestException(
@@ -225,10 +249,13 @@ export class PostingService {
       }
 
       const amountUntaxed = salePrice + adminFee + insuranceFee;
+      // FIX C5: status DRAFT (not POSTED) — finance must review + post via postInvoice()
+      // TODO: full refactor — move sale GL + COGS GL into postInvoice() for deal invoices.
+      // Currently kept here to avoid breaking commission accrual timing (commissions accrue at finalize per spec).
       await tx.invoice.create({
         data: {
           type: 'CUSTOMER_INVOICE',
-          status: 'POSTED',
+          status: 'DRAFT',
           journalId: saleJournal.id,
           partnerId,
           dealId: deal.id,
@@ -280,6 +307,23 @@ export class PostingService {
       // 4b. Trade-in vehicle GL entry -- DR Used Vehicle Inventory (1410), CR AR (1300)
       const tradeInValue = Number(deal.tradeInValue ?? 0);
       if (tradeInValue > 0 && deal.tradeInVehicleId) {
+        const tradeInLines = [
+          {
+            accountId: accounts['1410'],
+            debit: tradeInValue,
+            credit: 0,
+            label: 'Trade-In Vehicle Inventory',
+            analyticAccountId,
+          },
+          {
+            accountId: accounts['1300'],
+            debit: 0,
+            credit: tradeInValue,
+            label: 'Trade-In Credit - AR Reduction',
+            analyticAccountId,
+          },
+        ];
+        this.assertBalanced(tradeInLines);
         await tx.journalEntry.create({
           data: {
             journalId: generalJournal.id,
@@ -287,22 +331,7 @@ export class PostingService {
             ref: `TRADE-${dealId.slice(-8).toUpperCase()}`,
             status: 'POSTED',
             lines: {
-              create: [
-                {
-                  accountId: accounts['1410'],
-                  debit: tradeInValue,
-                  credit: 0,
-                  label: 'Trade-In Vehicle Inventory',
-                  analyticAccountId,
-                },
-                {
-                  accountId: accounts['1300'],
-                  debit: 0,
-                  credit: tradeInValue,
-                  label: 'Trade-In Credit - AR Reduction',
-                  analyticAccountId,
-                },
-              ],
+              create: tradeInLines,
             },
           },
         });
@@ -381,7 +410,36 @@ export class PostingService {
     const interest = Number(line.interestPortion);
     const totalDue = Number(line.totalDue);
 
+    const instLines = [
+      {
+        accountId: accounts['1100'],
+        debit: totalDue,
+        credit: 0,
+        label: 'Installment Received',
+        analyticAccountId,
+      },
+      {
+        accountId: accounts['1300'],
+        debit: 0,
+        credit: principal,
+        label: 'Clear AR — Principal',
+        analyticAccountId,
+      },
+      ...(interest > 0
+        ? [
+            {
+              accountId: accounts['4300'],
+              debit: 0,
+              credit: interest,
+              label: 'Interest Income',
+              analyticAccountId,
+            },
+          ]
+        : []),
+    ];
+
     await this.prisma.$transaction(async (tx) => {
+      this.assertBalanced(instLines);
       await tx.journalEntry.create({
         data: {
           journalId: cashJournal.id,
@@ -389,33 +447,7 @@ export class PostingService {
           ref: `INST-${installmentLineId.slice(-8).toUpperCase()}`,
           status: 'POSTED',
           lines: {
-            create: [
-              {
-                accountId: accounts['1100'],
-                debit: totalDue,
-                credit: 0,
-                label: 'Installment Received',
-                analyticAccountId,
-              },
-              {
-                accountId: accounts['1300'],
-                debit: 0,
-                credit: principal,
-                label: 'Clear AR — Principal',
-                analyticAccountId,
-              },
-              ...(interest > 0
-                ? [
-                    {
-                      accountId: accounts['4300'],
-                      debit: 0,
-                      credit: interest,
-                      label: 'Interest Income',
-                      analyticAccountId,
-                    },
-                  ]
-                : []),
-            ],
+            create: instLines,
           },
         },
       });
@@ -443,6 +475,7 @@ export class PostingService {
   }
 
   // -- Bank Financing Disbursement --
+  // FIX C7: shortfall leaves remaining AR open; overage throws for manual review
 
   async postBankDisbursement(dealId: string, userId: string): Promise<void> {
     const deal = await this.prisma.deal.findUniqueOrThrow({
@@ -465,11 +498,8 @@ export class PostingService {
     const now = new Date();
     await this.assertFiscalPeriodOpen(now, companyId);
 
-    const accounts = await this.resolveAccounts(companyId, [
-      '1200',
-      '1300',
-      '2600',
-    ]);
+    // FIX C7: only need Bank + AR accounts — no liability entry
+    const accounts = await this.resolveAccounts(companyId, ['1200', '1300']);
     const analyticAccountId = deal.location.analyticAccount?.id;
 
     const approvedAmount = Number(bankApproval.approvedAmount);
@@ -477,16 +507,17 @@ export class PostingService {
       Number(deal.salePrice) * (1 + VAT_RATE) +
       Number(deal.adminFee ?? 0) +
       Number(deal.insuranceFee ?? 0);
-    const shortfall = saleTotal - approvedAmount;
 
-    // DR: Bank 1200 (approved amount) + DR: Bank Financing Liability 2600 (shortfall if any) / CR: AR 1300
-    const lines: Array<{
-      accountId: string;
-      debit: number;
-      credit: number;
-      label: string;
-      analyticAccountId?: string;
-    }> = [
+    // FIX C7: overage → reject; shortfall → only credit AR for approvedAmount (remaining AR stays open)
+    if (approvedAmount > saleTotal) {
+      throw new BadRequestException(
+        'Bank disbursement overage requires manual finance review. Reduce the approved amount to match the invoice total or contact finance.',
+      );
+    }
+
+    // Per spec 06: DR Bank approvedAmount / CR AR approvedAmount
+    // Shortfall (saleTotal - approvedAmount) remains as open AR for customer to pay
+    const lines = [
       {
         accountId: accounts['1200'],
         debit: approvedAmount,
@@ -497,29 +528,13 @@ export class PostingService {
       {
         accountId: accounts['1300'],
         debit: 0,
-        credit: saleTotal,
-        label: 'Clear AR',
+        credit: approvedAmount,
+        label: `Clear AR — bank disbursement${approvedAmount < saleTotal ? ' (partial — shortfall remains on AR)' : ''}`,
         analyticAccountId,
       },
     ];
-    if (shortfall > 0) {
-      lines.push({
-        accountId: accounts['2600'],
-        debit: shortfall,
-        credit: 0,
-        label: 'Bank financing shortfall',
-        analyticAccountId,
-      });
-    } else if (shortfall < 0) {
-      lines.push({
-        accountId: accounts['2600'],
-        debit: 0,
-        credit: Math.abs(shortfall),
-        label: 'Bank financing overage',
-        analyticAccountId,
-      });
-    }
 
+    this.assertBalanced(lines);
     await this.prisma.$transaction(async (tx) => {
       await tx.journalEntry.create({
         data: {
@@ -579,6 +594,24 @@ export class PostingService {
     });
     const amount = Number(commission.calculatedAmount);
 
+    const commLines = [
+      {
+        accountId: accounts['6100'],
+        debit: amount,
+        credit: 0,
+        label: 'Sales Commission Expense',
+        analyticAccountId,
+      },
+      {
+        accountId: accounts['2400'],
+        debit: 0,
+        credit: amount,
+        label: 'Commissions Payable',
+        analyticAccountId,
+      },
+    ];
+
+    this.assertBalanced(commLines);
     const entry = await db.journalEntry.create({
       data: {
         journalId,
@@ -586,22 +619,7 @@ export class PostingService {
         ref: `COMM-${dealCommissionId.slice(-8).toUpperCase()}`,
         status: 'POSTED',
         lines: {
-          create: [
-            {
-              accountId: accounts['6100'],
-              debit: amount,
-              credit: 0,
-              label: 'Sales Commission Expense',
-              analyticAccountId,
-            },
-            {
-              accountId: accounts['2400'],
-              debit: 0,
-              credit: amount,
-              label: 'Commissions Payable',
-              analyticAccountId,
-            },
-          ],
+          create: commLines,
         },
       },
     });
@@ -643,6 +661,24 @@ export class PostingService {
     );
     const analyticAccountId = journal.location?.analyticAccount?.id;
 
+    const payoutLines = [
+      {
+        accountId: accounts['2400'],
+        debit: totalPayout,
+        credit: 0,
+        label: 'Commissions Payable',
+        analyticAccountId,
+      },
+      {
+        accountId: accounts['1200'],
+        debit: 0,
+        credit: totalPayout,
+        label: 'Bank - Commission Payout',
+        analyticAccountId,
+      },
+    ];
+
+    this.assertBalanced(payoutLines);
     await this.prisma.$transaction(async (tx) => {
       const entry = await tx.journalEntry.create({
         data: {
@@ -651,22 +687,7 @@ export class PostingService {
           ref: `COMPAY-${Date.now()}`,
           status: 'POSTED',
           lines: {
-            create: [
-              {
-                accountId: accounts['2400'],
-                debit: totalPayout,
-                credit: 0,
-                label: 'Commissions Payable',
-                analyticAccountId,
-              },
-              {
-                accountId: accounts['1200'],
-                debit: 0,
-                credit: totalPayout,
-                label: 'Bank - Commission Payout',
-                analyticAccountId,
-              },
-            ],
+            create: payoutLines,
           },
         },
       });
@@ -718,6 +739,23 @@ export class PostingService {
       const amount = Number(commission.calculatedAmount);
 
       // DR Commissions Payable (2400), CR Sales Commission Expense (6100)
+      const clawbackLines = [
+        {
+          accountId: accounts['2400'],
+          debit: amount,
+          credit: 0,
+          label: 'Commission Clawback - Payable Reversal',
+          analyticAccountId,
+        },
+        {
+          accountId: accounts['6100'],
+          debit: 0,
+          credit: amount,
+          label: 'Commission Clawback - Expense Reversal',
+          analyticAccountId,
+        },
+      ];
+      this.assertBalanced(clawbackLines);
       await db.journalEntry.create({
         data: {
           journalId: generalJournal.id,
@@ -725,22 +763,7 @@ export class PostingService {
           ref: `COMM-CLB-${dealId.slice(-8).toUpperCase()}`,
           status: 'POSTED',
           lines: {
-            create: [
-              {
-                accountId: accounts['2400'],
-                debit: amount,
-                credit: 0,
-                label: 'Commission Clawback - Payable Reversal',
-                analyticAccountId,
-              },
-              {
-                accountId: accounts['6100'],
-                debit: 0,
-                credit: amount,
-                label: 'Commission Clawback - Expense Reversal',
-                analyticAccountId,
-              },
-            ],
+            create: clawbackLines,
           },
         },
       });
@@ -773,6 +796,8 @@ export class PostingService {
 
     const isCustomer =
       inv.type === 'CUSTOMER_INVOICE' || inv.type === 'CUSTOMER_CREDIT_NOTE';
+    const isVendorBill =
+      inv.type === 'VENDOR_BILL' || inv.type === 'VENDOR_CREDIT_NOTE';
     const prefix = isCustomer ? 'INV' : 'BILL';
 
     let glLines: any[];
@@ -807,9 +832,12 @@ export class PostingService {
           : []),
       ];
     } else {
-      const accounts = await this.resolveAccounts(inv.journal.companyId, [
-        '2100',
-      ]);
+      // FIX C9: vendor bill tax → Input VAT Receivable (1350), not expense account
+      const accountCodes = taxAmount > 0 ? ['2100', '1350'] : ['2100'];
+      const accounts = await this.resolveAccounts(
+        inv.journal.companyId,
+        accountCodes,
+      );
       glLines = [
         ...inv.lines.map((l) => ({
           accountId: l.accountId,
@@ -820,10 +848,10 @@ export class PostingService {
         ...(taxAmount > 0
           ? [
               {
-                accountId: inv.lines[0]?.accountId ?? accounts['2100'],
+                accountId: accounts['1350'],
                 debit: taxAmount,
                 credit: 0,
-                label: 'Input VAT',
+                label: 'Input VAT Receivable',
               },
             ]
           : []),
@@ -837,6 +865,7 @@ export class PostingService {
       ];
     }
 
+    this.assertBalanced(glLines);
     await this.prisma.$transaction(async (tx) => {
       await tx.journalEntry.create({
         data: {
@@ -868,6 +897,14 @@ export class PostingService {
     if (!inv.journalEntry) throw new BadRequestException('No journal entry found for this invoice');
     const now = new Date();
     await this.assertFiscalPeriodOpen(now, inv.journal.companyId);
+    const reversalLines = inv.journalEntry!.lines.map((l) => ({
+      accountId: l.accountId,
+      debit: Number(l.credit),
+      credit: Number(l.debit),
+      partnerId: l.partnerId ?? undefined,
+      label: `Reversal: ${l.label ?? ''}`,
+    }));
+    this.assertBalanced(reversalLines);
     await this.prisma.$transaction(async (tx) => {
       // ponytail: reversal = mirror lines (swap debit/credit)
       await tx.journalEntry.create({
@@ -877,13 +914,7 @@ export class PostingService {
           ref: `REV-${invoiceId.slice(-8).toUpperCase()}`,
           status: 'POSTED',
           lines: {
-            create: inv.journalEntry!.lines.map((l) => ({
-              accountId: l.accountId,
-              debit: l.credit,
-              credit: l.debit,
-              partnerId: l.partnerId ?? undefined,
-              label: `Reversal: ${l.label ?? ''}`,
-            })),
+            create: reversalLines,
           },
         },
       });
@@ -905,7 +936,33 @@ export class PostingService {
       p.type === 'CUSTOMER_PAYMENT' || p.type === 'CUSTOMER_DEPOSIT';
     let glLines: any[];
 
-    if (isInbound) {
+    if (p.type === 'CUSTOMER_DEPOSIT') {
+      // FIX C8: deposit → DR Bank/Cash / CR Customer Deposits liability (2300)
+      // AR doesn't exist yet when deposit is taken. Reclassification to AR happens later.
+      const accounts = await this.resolveAccounts(p.journal.companyId, [
+        '2300',
+      ]);
+      const bankAccountId = p.journal.defaultDebitAccountId;
+      if (!bankAccountId)
+        throw new BadRequestException(
+          'Journal has no default debit account — configure it first',
+        );
+      glLines = [
+        {
+          accountId: bankAccountId,
+          debit: Number(p.amount),
+          credit: 0,
+          label: p.memo ?? `Deposit ${paymentId.slice(-8)}`,
+        },
+        {
+          accountId: accounts['2300'],
+          debit: 0,
+          credit: Number(p.amount),
+          partnerId: p.partnerId ?? undefined,
+          label: 'Customer Deposit',
+        },
+      ];
+    } else if (p.type === 'CUSTOMER_PAYMENT') {
       const accounts = await this.resolveAccounts(p.journal.companyId, [
         '1300',
       ]);
@@ -967,6 +1024,7 @@ export class PostingService {
       ];
     }
 
+    this.assertBalanced(glLines);
     await this.prisma.$transaction(async (tx) => {
       await tx.journalEntry.create({
         data: {
@@ -983,7 +1041,7 @@ export class PostingService {
         data: { status: 'POSTED' },
       });
       // ponytail: CASH deal → mark commissions PAYABLE on first customer payment posted
-      if (p.dealId && isInbound) {
+      if (p.dealId && p.type === 'CUSTOMER_PAYMENT') {
         const deal = await tx.deal.findUnique({
           where: { id: p.dealId },
           select: { purchaseMethod: true },

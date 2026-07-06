@@ -46,7 +46,7 @@ export class ReportsService {
 
   async incomeStatement(companyId: string, dateFrom: Date, dateTo: Date) {
     const incomeTypes = ['INCOME', 'OTHER_INCOME'];
-    const expenseTypes = ['EXPENSE', 'DEPRECIATION', 'COGS'];
+    const expenseTypes = ['EXPENSE', 'COST_OF_REVENUE'];
 
     const rows = await this.prisma.journalEntryLine.groupBy({
       by: ['accountId'],
@@ -376,10 +376,10 @@ export class ReportsService {
       depRows._sum?.debit?.toString() ?? '0',
     ).minus(new Decimal(depRows._sum?.credit?.toString() ?? '0'));
 
-    // AR change: sum of AR account lines (code '1200') -- increase in AR = cash outflow
+    // AR change: sum of AR account lines (code '1300') -- increase in AR = cash outflow
     const arRows = await this.prisma.journalEntryLine.aggregate({
       where: {
-        account: { companyId, code: '1200' },
+        account: { companyId, code: '1300' },
         journalEntry: {
           status: 'POSTED',
           date: { gte: dateFrom, lte: dateTo },

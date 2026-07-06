@@ -160,40 +160,6 @@ export class PublicController {
         createdAt: true,
         vehicle: { select: { make: true, model: true, year: true } },
         location: { select: { name: true, phone: true } },
-        financeApplication: {
-          select: {
-            id: true,
-            status: true,
-            bankApproval: {
-              select: {
-                approvedAmount: true,
-                approvalDate: true,
-                approvalReferenceNumber: true,
-              },
-            },
-          },
-        },
-        installmentPlan: {
-          select: {
-            id: true,
-            principalAmount: true,
-            downPayment: true,
-            durationMonths: true,
-            interestRate: true,
-            startDate: true,
-            status: true,
-            installments: {
-              select: {
-                dueDate: true,
-                status: true,
-                totalDue: true,
-                paidAmount: true,
-              },
-              orderBy: { dueDate: 'asc' },
-              take: 3,
-            },
-          },
-        },
       },
     });
     return { deals };

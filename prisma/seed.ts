@@ -78,7 +78,10 @@ async function main() {
     { code: '1310', name: 'Inter-Location Receivable', type: 'ASSET', parent: '1300' },
     { code: '1400', name: 'Vehicle Inventory – New', type: 'ASSET', parent: '1000' },
     { code: '1410', name: 'Vehicle Inventory – Used', type: 'ASSET', parent: '1000' },
+    { code: '1350', name: 'Input VAT Receivable', type: 'ASSET', parent: '1300' },
     { code: '1420', name: 'Trade-In Clearing', type: 'ASSET', parent: '1000' },
+    { code: '1430', name: 'Parts Inventory', type: 'ASSET', parent: '1000' },
+    { code: '1440', name: 'Service Fleet Vehicles', type: 'ASSET', parent: '1000' },
     { code: '1500', name: 'Prepaid Expenses', type: 'ASSET', parent: '1000' },
     { code: '1600', name: 'Fixed Assets', type: 'ASSET', parent: null },
     { code: '1610', name: 'Equipment', type: 'ASSET', parent: '1600' },
@@ -194,7 +197,7 @@ async function main() {
       scope: 'PURCHASE',
       includedInPrice: false,
       taxGroupId: vatGroup.id,
-      accountId: coa['2200'],
+      accountId: coa['1350'], // Input VAT Receivable (not output VAT 2200)
     },
   });
 
@@ -317,6 +320,15 @@ async function main() {
       sequencePrefix: 'BNK/CAI/',
       defaultDebitCode: '1210',
       defaultCreditCode: '1210',
+    },
+    {
+      id: 'j-gen-cai',
+      name: 'General Journal – Cairo',
+      code: 'GEN-CAI',
+      type: 'GENERAL',
+      sequencePrefix: 'GEN/CAI/',
+      defaultDebitCode: '1110',
+      defaultCreditCode: '1110',
     },
   ];
 

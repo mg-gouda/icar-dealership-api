@@ -199,10 +199,31 @@ export class GlService {
   async postEntry(id: string, userId: string) {
     const entry = await this.prisma.journalEntry.findUniqueOrThrow({
       where: { id },
-      include: { lines: true },
+      include: { lines: true, journal: { select: { companyId: true } } },
     });
     if (entry.status === 'POSTED')
       throw new BadRequestException('Entry already posted');
+
+    // Fiscal period check — mirrors PostingService.assertFiscalPeriodOpen
+    const companyId = entry.journal.companyId;
+    const date = entry.date;
+    const fiscal = await this.prisma.fiscalYear.findFirst({
+      where: { companyId, startDate: { lte: date }, endDate: { gte: date } },
+    });
+    if (!fiscal)
+      throw new BadRequestException('No open fiscal year for the posting date.');
+    if (fiscal.lockDate && date <= fiscal.lockDate) {
+      const override = await this.prisma.userPermission.findFirst({
+        where: { userId, permissionKey: 'finance:lock-override', granted: true },
+      });
+      if (!override)
+        throw new BadRequestException(
+          'Fiscal period is locked. Finance Admin — Lock Override permission required.',
+        );
+      await this.prisma.auditLog.create({
+        data: { entityType: 'FiscalYear', entityId: fiscal.id, action: 'LOCK_OVERRIDE', userId },
+      });
+    }
 
     const posted = await this.prisma.journalEntry.update({
       where: { id },

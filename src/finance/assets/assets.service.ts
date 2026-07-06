@@ -256,15 +256,50 @@ export class AssetsService {
     const accumulated = postedLines.length
       ? new Decimal(postedLines[postedLines.length - 1].accumulatedAmount)
       : new Decimal(0);
-    const bookValue = new Decimal((asset as any).originalValue).minus(
-      accumulated,
-    );
+    const bookValue = new Decimal((asset as any).originalValue).minus(accumulated);
     const gainLoss = proceeds.minus(bookValue);
+    const disposeDate = new Date(body.date);
 
-    const updated = await this.prisma.asset.update({
-      where: { id: assetId },
-      data: { state: 'CLOSED' },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.asset.update({ where: { id: assetId }, data: { state: 'CLOSED' } });
+
+      // Post disposal GL entry if a journal is provided
+      if (body.journalId) {
+        const a = asset as any;
+        const glLines: any[] = [
+          // Remove asset at cost: CR Fixed Asset
+          { accountId: a.assetAccountId, label: `Disposal – ${a.name}`, debit: 0, credit: Number(a.originalValue) },
+          // Remove accumulated depreciation: DR Acc Dep
+          { accountId: a.accumulatedDepAccountId, label: `Acc Dep – ${a.name}`, debit: accumulated.toNumber(), credit: 0 },
+        ];
+        if (proceeds.gt(0)) {
+          // DR Bank/Cash for proceeds
+          const bankAcc = await tx.account.findFirst({ where: { code: '1210', companyId: a.companyId ?? undefined } });
+          if (bankAcc) glLines.push({ accountId: bankAcc.id, label: 'Disposal proceeds', debit: proceeds.toNumber(), credit: 0 });
+        }
+        // Gain: CR Other Income (if gain > 0) / Loss: DR Expense (if loss > 0)
+        if (!gainLoss.isZero()) {
+          const glAcc = await tx.account.findFirst({
+            where: { code: gainLoss.gt(0) ? '4000' : '6700', companyId: a.companyId ?? undefined },
+          });
+          if (glAcc) {
+            glLines.push(gainLoss.gt(0)
+              ? { accountId: glAcc.id, label: 'Gain on disposal', debit: 0, credit: gainLoss.toNumber() }
+              : { accountId: glAcc.id, label: 'Loss on disposal', debit: gainLoss.negated().toNumber(), credit: 0 });
+          }
+        }
+        await tx.journalEntry.create({
+          data: {
+            journalId: body.journalId,
+            date: disposeDate,
+            ref: `DISP/${a.name}`,
+            status: 'POSTED',
+            lines: { create: glLines },
+          },
+        });
+      }
     });
-    return { asset: updated, bookValue, proceeds, gainLoss };
+
+    return { asset: await this.getById(assetId), bookValue, proceeds, gainLoss };
   }
 }

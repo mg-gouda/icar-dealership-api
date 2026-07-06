@@ -107,44 +107,7 @@ export class GlController {
     return this.svc.deleteEntry(id, req.user.id);
   }
 
-  // UI aliases — /finance/gl maps to /finance/gl/entries
-  @Get()
-  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  getEntriesAlias(@Query() q: any, @Request() req: any) {
-    return this.svc.getEntries(req.user.companyId, q);
-  }
-
-  @Post()
-  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  createEntryAlias(@Body() body: any, @Request() req: any) {
-    return this.svc.createEntry(body, req.user.id);
-  }
-
-  @Get(':id')
-  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  getEntryAlias(@Param('id') id: string) {
-    return this.svc.getEntry(id);
-  }
-
-  @Post(':id/post')
-  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  postEntryAlias(@Param('id') id: string, @Request() req: any) {
-    return this.svc.postEntry(id, req.user.id);
-  }
-
-  @Post(':id/reverse')
-  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  reverseEntryAlias(@Param('id') id: string, @Request() req: any) {
-    return this.svc.reverseEntry(id, req.user.id);
-  }
-
-  @Delete(':id')
-  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  deleteEntryAlias(@Param('id') id: string, @Request() req: any) {
-    return this.svc.deleteEntry(id, req.user.id);
-  }
-
-  // Reports
+  // Reports — literal paths MUST precede the :id wildcard alias below
   @Get('trial-balance')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   trialBalance(@Query() q: any, @Request() req: any) {
@@ -178,5 +141,43 @@ export class GlController {
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   deleteRecurring(@Param('id') id: string, @Request() req: any) {
     return this.svc.deleteRecurring(id, req.user.id);
+  }
+
+  // UI aliases — /finance/gl maps to /finance/gl/entries
+  // ponytail: wildcard aliases AFTER all literal paths to prevent route shadowing
+  @Get()
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  getEntriesAlias(@Query() q: any, @Request() req: any) {
+    return this.svc.getEntries(req.user.companyId, q);
+  }
+
+  @Post()
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  createEntryAlias(@Body() body: any, @Request() req: any) {
+    return this.svc.createEntry(body, req.user.id);
+  }
+
+  @Post(':id/post')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  postEntryAlias(@Param('id') id: string, @Request() req: any) {
+    return this.svc.postEntry(id, req.user.id);
+  }
+
+  @Post(':id/reverse')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  reverseEntryAlias(@Param('id') id: string, @Request() req: any) {
+    return this.svc.reverseEntry(id, req.user.id);
+  }
+
+  @Delete(':id')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  deleteEntryAlias(@Param('id') id: string, @Request() req: any) {
+    return this.svc.deleteEntry(id, req.user.id);
+  }
+
+  @Get(':id')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  getEntryAlias(@Param('id') id: string) {
+    return this.svc.getEntry(id);
   }
 }

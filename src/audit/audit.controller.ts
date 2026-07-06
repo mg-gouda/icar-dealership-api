@@ -13,7 +13,7 @@ export class AuditController {
   constructor(private prisma: PrismaService) {}
 
   @Get()
-  @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   async list(
     @Query('entityType') entityType?: string,
     @Query('entityId') entityId?: string,

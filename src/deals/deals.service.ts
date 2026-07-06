@@ -322,8 +322,8 @@ export class DealsService {
     }
     if (deal.purchaseMethod === 'BANK_FINANCING') {
       if (
-        (deal as any).bankFinancingStatus !== 'APPROVED' ||
-        !(deal as any).financeApplication?.bankApproval
+        deal.financeApplication?.bankFinancingStatus !== 'APPROVED' ||
+        !deal.financeApplication?.bankApproval
       ) {
         throw new BadRequestException(
           'Bank financing deals require an approved bank approval before finalizing.',

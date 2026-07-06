@@ -13,7 +13,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ]),
       passReqToCallback: false,
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('JWT_SECRET') || 'fallback-secret',
+      secretOrKey: config.get<string>('JWT_SECRET') ?? (() => { throw new Error('JWT_SECRET env var is required'); })(),
     });
   }
 

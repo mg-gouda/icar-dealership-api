@@ -29,7 +29,13 @@ export class LocationScopeGuard implements CanActivate {
       request.query?.locationId ??
       request.body?.locationId;
 
-    if (!requestedLocationId) return true;
+    if (!requestedLocationId) {
+      // Non-admin users without an explicit locationId: inject their own so services auto-filter
+      if (user?.locationId && !['SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
+        request.query = { ...request.query, locationId: user.locationId };
+      }
+      return true;
+    }
 
     if (user?.locationId && user.locationId !== requestedLocationId) {
       throw new ForbiddenException('Access to this location is not permitted.');

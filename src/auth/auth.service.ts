@@ -48,6 +48,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       this.recordFailedAttempt(email);
@@ -325,7 +329,6 @@ export class AuthService {
       entityId: user.id,
       action: 'PASSWORD_RESET_REQUESTED',
       userId: user.id,
-      newValue: { resetCode: code },
     });
 
     // Send email (no-op if SMTP not configured)
