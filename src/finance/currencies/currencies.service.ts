@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 
@@ -165,6 +165,31 @@ export class CurrenciesService {
     return { deleted: true };
   }
 
+  // ponytail: fiscal period gate inlined — no shared service dep needed here
+  private async assertFiscalPeriodOpen(date: Date, companyId: string, userId?: string) {
+    const fiscal = await this.prisma.fiscalYear.findFirst({
+      where: { companyId, startDate: { lte: date }, endDate: { gte: date } },
+    });
+    if (!fiscal)
+      throw new BadRequestException('No open fiscal year for the posting date.');
+    if (fiscal.lockDate && date <= fiscal.lockDate) {
+      if (userId) {
+        const override = await this.prisma.userPermission.findFirst({
+          where: { userId, permissionKey: 'finance:lock-override', granted: true },
+        });
+        if (override) {
+          await this.prisma.auditLog.create({
+            data: { entityType: 'FiscalYear', entityId: fiscal.id, action: 'LOCK_OVERRIDE', userId },
+          });
+          return;
+        }
+      }
+      throw new BadRequestException(
+        'Fiscal period is locked. Finance Admin — Lock Override permission required.',
+      );
+    }
+  }
+
   async revaluate(companyId: string, userId: string) {
     // Find open foreign-currency GL lines with amountCurrency set
     const openLines = await this.prisma.journalEntryLine.findMany({
@@ -196,6 +221,13 @@ export class CurrenciesService {
       throw new Error('No GENERAL journal found for company. Run seed first.');
 
     const today = new Date();
+
+    // Fiscal period check for revaluation date
+    await this.assertFiscalPeriodOpen(today, companyId, userId);
+
+    // Compute reversal date = first day of next month
+    const reversalDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+
     let revaluedCount = 0;
     let totalVariance = 0;
 
@@ -215,7 +247,8 @@ export class CurrenciesService {
         const variance = fxAmount - bookValue;
         if (Math.abs(variance) < 0.01) continue;
 
-        await tx.journalEntry.create({
+        // Original revaluation entry
+        const revalEntry = await tx.journalEntry.create({
           data: {
             journalId: generalJournal.id,
             date: today,
@@ -239,6 +272,34 @@ export class CurrenciesService {
             },
           },
         });
+
+        // Auto-reversing mirror entry — DRAFT so finance reviews before posting
+        await tx.journalEntry.create({
+          data: {
+            journalId: generalJournal.id,
+            date: reversalDate,
+            ref: `REV-${revalEntry.ref}`,
+            status: 'DRAFT',
+            reversedEntryId: revalEntry.id,
+            lines: {
+              create: [
+                {
+                  accountId: line.accountId,
+                  debit: variance < 0 ? -variance : 0,
+                  credit: variance > 0 ? variance : 0,
+                  label: `Auto-reversal: ${revalEntry.ref}`,
+                },
+                {
+                  accountId: fxAccount.id,
+                  debit: variance > 0 ? variance : 0,
+                  credit: variance < 0 ? -variance : 0,
+                  label: `Auto-reversal: ${revalEntry.ref}`,
+                },
+              ],
+            },
+          },
+        });
+
         revaluedCount++;
         totalVariance += variance;
       }
