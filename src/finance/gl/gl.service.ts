@@ -225,6 +225,9 @@ export class GlService {
       });
     }
 
+    // Monthly FiscalPeriod lock check
+    await this.assertFiscalPeriodOpen(companyId, date, userId);
+
     const posted = await this.prisma.journalEntry.update({
       where: { id },
       data: { status: 'POSTED' },
@@ -397,6 +400,20 @@ export class GlService {
         if (fiscal.lockDate && asOf <= fiscal.lockDate)
           throw new BadRequestException('Fiscal period is locked.');
 
+        // Monthly FiscalPeriod lock check
+        const lockedPeriod = await tx.fiscalPeriod.findFirst({
+          where: {
+            companyId,
+            isLocked: true,
+            startDate: { lte: asOf },
+            endDate: { gte: asOf },
+          },
+        });
+        if (lockedPeriod)
+          throw new BadRequestException(
+            `Fiscal period "${lockedPeriod.name}" is locked.`,
+          );
+
         await tx.journalEntry.create({
           data: {
             journalId: tmpl.journalId,
@@ -521,6 +538,124 @@ export class GlService {
       userId,
     });
     return { deleted: true };
+  }
+
+  // -- Fiscal Periods --
+
+  async getFiscalPeriods(companyId: string, fiscalYearId?: string) {
+    return this.prisma.fiscalPeriod.findMany({
+      where: { companyId, ...(fiscalYearId && { fiscalYearId }) },
+      orderBy: { startDate: 'asc' },
+    });
+  }
+
+  async createFiscalPeriod(
+    data: {
+      companyId: string;
+      fiscalYearId: string;
+      name: string;
+      startDate: string;
+      endDate: string;
+    },
+    userId: string,
+  ) {
+    const period = await this.prisma.fiscalPeriod.create({
+      data: {
+        companyId: data.companyId,
+        fiscalYearId: data.fiscalYearId,
+        name: data.name,
+        startDate: new Date(data.startDate),
+        endDate: new Date(data.endDate),
+        isLocked: false,
+      },
+    });
+    await this.audit.log({
+      entity: 'FiscalPeriod',
+      entityId: period.id,
+      action: 'CREATE',
+      userId,
+      newValue: period,
+    });
+    return period;
+  }
+
+  async lockFiscalPeriod(id: string, userId: string) {
+    const period = await this.prisma.fiscalPeriod.findUnique({ where: { id } });
+    if (!period) throw new NotFoundException(`FiscalPeriod ${id} not found`);
+    if (period.isLocked)
+      throw new BadRequestException('Period already locked');
+    const updated = await this.prisma.fiscalPeriod.update({
+      where: { id },
+      data: { isLocked: true, lockedAt: new Date(), lockedById: userId },
+    });
+    await this.audit.log({
+      entity: 'FiscalPeriod',
+      entityId: id,
+      action: 'LOCK',
+      userId,
+    });
+    return updated;
+  }
+
+  async unlockFiscalPeriod(id: string, userId: string) {
+    const period = await this.prisma.fiscalPeriod.findUnique({ where: { id } });
+    if (!period) throw new NotFoundException(`FiscalPeriod ${id} not found`);
+    if (!period.isLocked)
+      throw new BadRequestException('Period is not locked');
+    // Requires lock-override permission
+    const override = await this.prisma.userPermission.findFirst({
+      where: { userId, permissionKey: 'finance:lock-override', granted: true },
+    });
+    if (!override)
+      throw new BadRequestException(
+        'Unlocking a fiscal period requires Finance Admin — Lock Override permission.',
+      );
+    const updated = await this.prisma.fiscalPeriod.update({
+      where: { id },
+      data: { isLocked: false, lockedAt: null, lockedById: null },
+    });
+    await this.audit.log({
+      entity: 'FiscalPeriod',
+      entityId: id,
+      action: 'UNLOCK',
+      userId,
+    });
+    return updated;
+  }
+
+  /**
+   * Throws if the entry date falls within a locked FiscalPeriod,
+   * unless the user has finance:lock-override permission.
+   */
+  async assertFiscalPeriodOpen(
+    companyId: string,
+    entryDate: Date,
+    userId: string,
+  ) {
+    const lockedPeriod = await this.prisma.fiscalPeriod.findFirst({
+      where: {
+        companyId,
+        isLocked: true,
+        startDate: { lte: entryDate },
+        endDate: { gte: entryDate },
+      },
+    });
+    if (!lockedPeriod) return; // no locked period covers this date
+    const override = await this.prisma.userPermission.findFirst({
+      where: { userId, permissionKey: 'finance:lock-override', granted: true },
+    });
+    if (!override)
+      throw new BadRequestException(
+        `Fiscal period "${lockedPeriod.name}" is locked. Finance Admin — Lock Override permission required.`,
+      );
+    await this.prisma.auditLog.create({
+      data: {
+        entityType: 'FiscalPeriod',
+        entityId: lockedPeriod.id,
+        action: 'LOCK_OVERRIDE',
+        userId,
+      },
+    });
   }
 
   // -- Private helpers --

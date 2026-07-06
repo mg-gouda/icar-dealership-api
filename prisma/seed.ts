@@ -64,6 +64,25 @@ async function main() {
     },
   });
 
+  // ── 3b. Fiscal Periods (12 months for FY 2026) ─────────────────────────
+  for (let month = 0; month < 12; month++) {
+    const start = new Date(2026, month, 1);
+    const end = new Date(2026, month + 1, 0); // last day of month
+    await prisma.fiscalPeriod.upsert({
+      where: { companyId_startDate: { companyId: company.id, startDate: start } },
+      update: {},
+      create: {
+        id: `fp-2026-${String(month + 1).padStart(2, '0')}`,
+        companyId: company.id,
+        fiscalYearId: 'fy-2026',
+        name: start.toLocaleString('en', { month: 'short', year: 'numeric' }),
+        startDate: start,
+        endDate: end,
+        isLocked: false,
+      },
+    });
+  }
+
   // ── 4. Chart of Accounts ──────────────────────────────────────────────────
   // Assets
   const coa: Record<string, string> = {};
@@ -110,6 +129,7 @@ async function main() {
     { code: '4220', name: 'Compulsory Insurance Income', type: 'INCOME', parent: '4200' },
     { code: '4300', name: 'Installment Interest Income', type: 'INCOME', parent: '4000' },
     { code: '4400', name: 'Parts & Service Income', type: 'INCOME', parent: '4000' },
+    { code: '4900', name: 'Gain on Disposal of Assets', type: 'INCOME', parent: '4000' },
     // Cost of Revenue
     { code: '5000', name: 'Cost of Revenue', type: 'COST_OF_REVENUE', parent: null },
     { code: '5100', name: 'COGS – Vehicle Sales', type: 'COST_OF_REVENUE', parent: '5000' },
@@ -123,6 +143,7 @@ async function main() {
     { code: '6500', name: 'Depreciation Expense', type: 'EXPENSE', parent: '6000' },
     { code: '6600', name: 'Utilities', type: 'EXPENSE', parent: '6000' },
     { code: '6700', name: 'Miscellaneous Expense', type: 'EXPENSE', parent: '6000' },
+    { code: '6900', name: 'Loss on Disposal of Assets', type: 'EXPENSE', parent: '6000' },
     { code: '7000', name: 'Finance Expense', type: 'EXPENSE', parent: null },
     { code: '7100', name: 'Bank Charges', type: 'EXPENSE', parent: '7000' },
     { code: '7200', name: 'Foreign Exchange Loss', type: 'EXPENSE', parent: '7000' },
@@ -162,6 +183,9 @@ async function main() {
     });
     coa[acc.code] = created.id;
   }
+
+  // ── 4b. Fiscal Periods (monthly) ────────────────────────────────────────
+  // (Seeded after FiscalYear section below, but placed here so COA section stays contiguous)
 
   // ── 5. Tax Groups & Taxes ─────────────────────────────────────────────────
   const vatGroup = await prisma.taxGroup.upsert({

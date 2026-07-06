@@ -292,10 +292,11 @@ model Company {
   adminFeeBoundsPercent     Decimal? @default(20) @db.Decimal(5, 2)
   insuranceFeeBoundsPercent Decimal? @default(20) @db.Decimal(5, 2)
 
-  locations   Location[]
-  accounts    Account[]
-  journals    Journal[]
-  fiscalYears FiscalYear[]
+  locations     Location[]
+  accounts      Account[]
+  journals      Journal[]
+  fiscalYears   FiscalYear[]
+  fiscalPeriods FiscalPeriod[] @relation("FiscalPeriodCompany")
 
   serviceOrders     ServiceOrder[]     @relation("ServiceOrderCompany")
   parts             Part[]             @relation("PartCompany")
@@ -394,6 +395,7 @@ model User {
   pettyCashFunds       PettyCashFund[]    @relation("PettyCashCustodian")
   pettyCashSubmissions PettyCashVoucher[] @relation("PettyCashSubmitter")
   pettyCashApprovals   PettyCashVoucher[] @relation("PettyCashApprover")
+  lockedFiscalPeriods  FiscalPeriod[]     @relation("FiscalPeriodLockedBy")
 
   totpSecret       String?
   totpEnabled      Boolean   @default(false)
@@ -914,7 +916,31 @@ model FiscalYear {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  periods FiscalPeriod[] @relation("FiscalYearPeriods")
+
   @@unique([companyId, name])
+}
+
+model FiscalPeriod {
+  id           String    @id @default(cuid())
+  companyId    String
+  fiscalYearId String
+  name         String
+  startDate    DateTime
+  endDate      DateTime
+  isLocked     Boolean   @default(false)
+  lockedAt     DateTime?
+  lockedById   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  company    Company    @relation("FiscalPeriodCompany", fields: [companyId], references: [id])
+  fiscalYear FiscalYear @relation("FiscalYearPeriods", fields: [fiscalYearId], references: [id])
+  lockedBy   User?      @relation("FiscalPeriodLockedBy", fields: [lockedById], references: [id])
+
+  @@unique([companyId, startDate])
+  @@index([companyId, fiscalYearId])
+  @@index([companyId, startDate, endDate])
 }
 
 model AnalyticAccount {

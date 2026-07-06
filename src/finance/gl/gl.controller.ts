@@ -114,6 +114,34 @@ export class GlController {
     return this.svc.trialBalance(req.user.companyId, q.dateFrom, q.dateTo);
   }
 
+  // Fiscal Periods
+  @Get('fiscal-periods')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  getFiscalPeriods(@Query() q: any, @Request() req: any) {
+    return this.svc.getFiscalPeriods(req.user.companyId, q.fiscalYearId);
+  }
+
+  @Post('fiscal-periods')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  createFiscalPeriod(@Body() body: any, @Request() req: any) {
+    return this.svc.createFiscalPeriod(
+      { ...body, companyId: req.user.companyId },
+      req.user.id,
+    );
+  }
+
+  @Patch('fiscal-periods/:id/lock')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  lockFiscalPeriod(@Param('id') id: string, @Request() req: any) {
+    return this.svc.lockFiscalPeriod(id, req.user.id);
+  }
+
+  @Patch('fiscal-periods/:id/unlock')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  unlockFiscalPeriod(@Param('id') id: string, @Request() req: any) {
+    return this.svc.unlockFiscalPeriod(id, req.user.id);
+  }
+
   @Post('generate-recurring')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   generateRecurring(@Body() body: any, @Request() req: any) {
