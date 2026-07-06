@@ -5,10 +5,13 @@ import {
   Body,
   Query,
   Param,
+  Req,
   UseGuards,
   Request,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -17,10 +20,13 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { LocationScope } from '../common/decorators/location-scope.decorator';
+import * as crypto from 'crypto';
 
 @ApiTags('WhatsApp')
 @Controller('whatsapp')
 export class WhatsAppController {
+  private readonly logger = new Logger(WhatsAppController.name);
+
   constructor(private svc: WhatsAppService) {}
 
   // ── Protected endpoints ─────────────────────────────────────────────────
@@ -83,7 +89,32 @@ export class WhatsAppController {
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'WhatsApp Business API inbound webhook (public)' })
-  webhook(@Body() payload: any) {
+  webhook(@Body() payload: any, @Req() req: any) {
+    // ponytail: X-Hub-Signature-256 verification per WhatsApp Business API
+    const appSecret = process.env.WHATSAPP_APP_SECRET;
+    if (appSecret) {
+      const signature = req.headers['x-hub-signature-256'] as string;
+      if (!signature) {
+        throw new UnauthorizedException('Missing signature');
+      }
+      const body = JSON.stringify(payload);
+      const expected =
+        'sha256=' +
+        crypto.createHmac('sha256', appSecret).update(body).digest('hex');
+      if (
+        !crypto.timingSafeEqual(
+          Buffer.from(signature),
+          Buffer.from(expected),
+        )
+      ) {
+        throw new UnauthorizedException('Invalid webhook signature');
+      }
+    } else {
+      this.logger.warn(
+        'WHATSAPP_APP_SECRET not set — skipping webhook signature verification (dev mode)',
+      );
+    }
+
     return this.svc.receiveWebhook(payload);
   }
 }

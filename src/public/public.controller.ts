@@ -454,9 +454,22 @@ export class PublicController {
   @Get('account/deals/:id')
   @ApiOperation({ summary: 'Get full deal detail for logged-in customer' })
   async myDealDetail(@Param('id') id: string, @Request() req: any) {
+    // ponytail: explicit select — strip Vehicle.cost, commissions, BankApproval internal notes
     const deal = await this.prisma.deal.findFirstOrThrow({
       where: { id, customerId: req.user.id },
-      include: {
+      select: {
+        id: true,
+        status: true,
+        purchaseMethod: true,
+        salePrice: true,
+        adminFee: true,
+        insuranceFee: true,
+        tradeInValue: true,
+        tradeInMake: true,
+        tradeInModel: true,
+        tradeInYear: true,
+        createdAt: true,
+        updatedAt: true,
         vehicle: {
           select: {
             id: true,
@@ -464,19 +477,70 @@ export class PublicController {
             model: true,
             year: true,
             vin: true,
-            images: { orderBy: { order: 'asc' }, take: 3 },
+            color: true,
+            images: { orderBy: { order: 'asc' }, take: 3, select: { url: true } },
           },
         },
         installmentPlan: {
-          include: { installments: { orderBy: { dueDate: 'asc' } } },
-        },
-        financeApplication: {
-          include: {
-            bankApproval: true,
-            requiredDocuments: true,
+          select: {
+            id: true,
+            status: true,
+            principalAmount: true,
+            downPayment: true,
+            interestRate: true,
+            durationMonths: true,
+            totalPayable: true,
+            monthlyInstallment: true,
+            startDate: true,
+            installments: {
+              orderBy: { dueDate: 'asc' as const },
+              select: {
+                id: true,
+                installmentNumber: true,
+                dueDate: true,
+                principalPortion: true,
+                interestPortion: true,
+                totalDue: true,
+                status: true,
+                paidAmount: true,
+                paidDate: true,
+              },
+            },
           },
         },
-        invoices: { where: { type: 'CUSTOMER_INVOICE' }, take: 1 },
+        financeApplication: {
+          select: {
+            id: true,
+            status: true,
+            applicantInfo: true,
+            bankName: true,
+            bankBranch: true,
+            bankFinancingStatus: true,
+            rejectionReason: true,
+            bankApproval: {
+              select: {
+                approvedAmount: true,
+                approvalDate: true,
+                approvalReferenceNumber: true,
+              },
+            },
+            requiredDocuments: {
+              select: {
+                id: true,
+                documentType: true,
+                status: true,
+                fileUrl: true,
+              },
+            },
+          },
+        },
+        invoices: {
+          where: { type: 'CUSTOMER_INVOICE' },
+          take: 1,
+          select: { id: true, amountTotal: true, status: true },
+        },
+        location: { select: { name: true, phone: true } },
+        salesRep: { select: { name: true, phone: true } },
       },
     });
     return deal;
