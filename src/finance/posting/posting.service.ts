@@ -252,7 +252,7 @@ export class PostingService {
       // FIX C5: status DRAFT (not POSTED) — finance must review + post via postInvoice()
       // TODO: full refactor — move sale GL + COGS GL into postInvoice() for deal invoices.
       // Currently kept here to avoid breaking commission accrual timing (commissions accrue at finalize per spec).
-      await tx.invoice.create({
+      const invoice = await tx.invoice.create({
         data: {
           type: 'CUSTOMER_INVOICE',
           status: 'DRAFT',
@@ -340,6 +340,11 @@ export class PostingService {
           where: { id: deal.tradeInVehicleId },
           data: { status: 'AVAILABLE' },
         });
+        // F-8: Reduce invoice amountResidual by trade-in value
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: { amountResidual: totalAR - tradeInValue },
+        });
       }
 
       // 5. Update deal status -> FINALIZED
@@ -398,12 +403,11 @@ export class PostingService {
     const now = new Date();
     await this.assertFiscalPeriodOpen(now, companyId);
 
-    // DR Bank/Cash (1100), CR AR (1300) principal, CR Interest Income (4300) interest
-    const accounts = await this.resolveAccounts(companyId, [
-      '1100',
-      '1300',
-      '4300',
-    ]);
+    // F-11: Use journal's default debit account instead of hardcoded '1100'
+    const cashDebitAccountId = cashJournal.defaultDebitAccountId;
+    if (!cashDebitAccountId)
+      throw new BadRequestException('CASH/BANK journal has no default debit account — configure it first');
+    const accounts = await this.resolveAccounts(companyId, ['1300', '4300']);
     const analyticAccountId = deal.location.analyticAccount?.id;
 
     const principal = Number(line.principalPortion);
@@ -412,7 +416,7 @@ export class PostingService {
 
     const instLines = [
       {
-        accountId: accounts['1100'],
+        accountId: cashDebitAccountId,
         debit: totalDue,
         credit: 0,
         label: 'Installment Received',
@@ -498,8 +502,11 @@ export class PostingService {
     const now = new Date();
     await this.assertFiscalPeriodOpen(now, companyId);
 
-    // FIX C7: only need Bank + AR accounts — no liability entry
-    const accounts = await this.resolveAccounts(companyId, ['1200', '1300']);
+    // F-12: Use journal's default debit account instead of hardcoded '1200'
+    const bankDebitAccountId = bankJournal.defaultDebitAccountId;
+    if (!bankDebitAccountId)
+      throw new BadRequestException('BANK journal has no default debit account — configure it first');
+    const accounts = await this.resolveAccounts(companyId, ['1300']);
     const analyticAccountId = deal.location.analyticAccount?.id;
 
     const approvedAmount = Number(bankApproval.approvedAmount);
@@ -519,7 +526,7 @@ export class PostingService {
     // Shortfall (saleTotal - approvedAmount) remains as open AR for customer to pay
     const lines = [
       {
-        accountId: accounts['1200'],
+        accountId: bankDebitAccountId,
         debit: approvedAmount,
         credit: 0,
         label: 'Bank disbursement received',
@@ -592,6 +599,8 @@ export class PostingService {
     const commission = await this.prisma.dealCommission.findUniqueOrThrow({
       where: { id: dealCommissionId },
     });
+    // F-19: Idempotency guard — skip if already accrued
+    if (commission.accrualJournalEntryId) return;
     const amount = Number(commission.calculatedAmount);
 
     const commLines = [
@@ -654,7 +663,11 @@ export class PostingService {
     if (!commissions.length)
       throw new BadRequestException('No PAYABLE commissions found');
 
-    const accounts = await this.resolveAccounts(companyId, ['2400', '1200']);
+    // F-12: Use journal's default credit account instead of hardcoded '1200'
+    const bankCreditAccountId = journal.defaultCreditAccountId;
+    if (!bankCreditAccountId)
+      throw new BadRequestException('Journal has no default credit account — configure it first');
+    const accounts = await this.resolveAccounts(companyId, ['2400']);
     const totalPayout = commissions.reduce(
       (s, c) => s + Number(c.calculatedAmount),
       0,
@@ -670,7 +683,7 @@ export class PostingService {
         analyticAccountId,
       },
       {
-        accountId: accounts['1200'],
+        accountId: bankCreditAccountId,
         debit: 0,
         credit: totalPayout,
         label: 'Bank - Commission Payout',

@@ -267,24 +267,44 @@ export class DealsService {
     userId: string,
   ) {
     const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id } });
-    if (deal.status === 'FINALIZED')
-      throw new BadRequestException('Cannot edit a finalized deal');
+
+    // ponytail: userId is passed; look up the user's role for bounds check + privilege override
+    const actor = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { role: true },
+    });
+    const privileged = ['FINANCE', 'ADMIN', 'SUPER_ADMIN'].includes(actor.role);
+
+    // B-12: Allow FINANCE/ADMIN/SUPER_ADMIN to edit finalized deals (with audit)
+    if (deal.status === 'FINALIZED') {
+      if (!privileged)
+        throw new BadRequestException('Cannot edit a finalized deal');
+      await this.audit.log({
+        entity: 'Deal',
+        entityId: id,
+        action: 'EDIT_FINALIZED',
+        userId,
+        newValue: data,
+      });
+    }
+    // B-13: Allow FINANCE/ADMIN/SUPER_ADMIN to change purchaseMethod after DRAFT (with audit)
     if (
       deal.status !== 'DRAFT' &&
       data.purchaseMethod &&
       data.purchaseMethod !== deal.purchaseMethod
     ) {
-      throw new BadRequestException(
-        'Purchase method cannot be changed after deal leaves DRAFT status',
-      );
+      if (!privileged)
+        throw new BadRequestException(
+          'Purchase method cannot be changed after deal leaves DRAFT status',
+        );
+      await this.audit.log({
+        entity: 'Deal',
+        entityId: id,
+        action: 'CHANGE_PURCHASE_METHOD',
+        userId,
+        newValue: { from: deal.purchaseMethod, to: data.purchaseMethod },
+      });
     }
-
-    // Fee bounds — role comes from the controller via userId lookup or passed explicitly
-    // ponytail: userId is passed; look up the user's role for bounds check
-    const actor = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { role: true },
-    });
     await this.assertFeeBounds(
       deal.locationId,
       actor.role,
@@ -690,34 +710,38 @@ export class DealsService {
       notes?: string;
     },
   ) {
+    // B-4: Atomic — upsert approval + update app + update deal in single transaction
     const app = await this.prisma.financeApplication.findUniqueOrThrow({
       where: { dealId },
     });
-    const approval = await this.prisma.bankApproval.upsert({
-      where: { financeApplicationId: app.id },
-      update: {
-        ...data,
-        approvalDate: new Date(data.approvalDate),
-        expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
-      },
-      create: {
-        financeApplicationId: app.id,
-        approvalReferenceNumber: data.approvalReferenceNumber,
-        approvedAmount: data.approvedAmount,
-        approvalDate: new Date(data.approvalDate),
-        expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
-        approvalDocumentUrl: data.approvalDocumentUrl,
-        notes: data.notes,
-      },
-    });
-    await this.prisma.financeApplication.update({
-      where: { id: app.id },
-      data: { bankFinancingStatus: 'APPROVED', status: 'APPROVED' },
-    });
-    // Move deal to PENDING_FINANCE for final finance review before finalize
-    await this.prisma.deal.update({
-      where: { id: dealId },
-      data: { status: 'PENDING_FINANCE' },
+    const approval = await this.prisma.$transaction(async (tx) => {
+      const appr = await tx.bankApproval.upsert({
+        where: { financeApplicationId: app.id },
+        update: {
+          ...data,
+          approvalDate: new Date(data.approvalDate),
+          expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
+        },
+        create: {
+          financeApplicationId: app.id,
+          approvalReferenceNumber: data.approvalReferenceNumber,
+          approvedAmount: data.approvedAmount,
+          approvalDate: new Date(data.approvalDate),
+          expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
+          approvalDocumentUrl: data.approvalDocumentUrl,
+          notes: data.notes,
+        },
+      });
+      await tx.financeApplication.update({
+        where: { id: app.id },
+        data: { bankFinancingStatus: 'APPROVED', status: 'APPROVED' },
+      });
+      // Move deal to PENDING_FINANCE for final finance review before finalize
+      await tx.deal.update({
+        where: { id: dealId },
+        data: { status: 'PENDING_FINANCE' },
+      });
+      return appr;
     });
     return approval;
   }

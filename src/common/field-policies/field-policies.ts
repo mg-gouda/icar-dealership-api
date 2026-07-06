@@ -101,7 +101,7 @@ export const FIELD_POLICIES: FieldPolicy[] = [
   { entity: 'FinanceApplication', field: 'applicantInfo', minRole: 'FINANCE' },
 
   // ── BankApproval ──
-  { entity: 'BankApproval', field: 'approvedAmount', minRole: 'MANAGER' },
+  { entity: 'BankApproval', field: 'approvedAmount', minRole: 'FINANCE' },
   { entity: 'BankApproval', field: 'approvedBy', minRole: 'MANAGER' },
   { entity: 'BankApproval', field: 'approvalDocumentUrl', minRole: 'FINANCE' },
 

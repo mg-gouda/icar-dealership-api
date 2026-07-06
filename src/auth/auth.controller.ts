@@ -8,6 +8,7 @@ import {
   Res,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
@@ -65,7 +66,11 @@ export class AuthController {
   @Throttle({ default: { limit: process.env.NODE_ENV === 'production' ? 10 : 500, ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refresh(@Body('refreshToken') refreshToken: string) {
+  async refresh(@Request() req: any) {
+    // B-5: Read refresh token from httpOnly cookie, not request body
+    const refreshToken = req.cookies?.['admin_refresh'];
+    if (!refreshToken)
+      throw new BadRequestException('Missing refresh token cookie');
     return this.authService.refreshToken(refreshToken);
   }
 
@@ -165,6 +170,8 @@ export class AuthController {
 
   // ── Password Reset ─────────────────────────────────────────────────────────
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request password reset code (no auth required)' })
@@ -174,6 +181,8 @@ export class AuthController {
     return { message: 'If that email exists, a reset code has been sent.' };
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password with code (no auth required)' })

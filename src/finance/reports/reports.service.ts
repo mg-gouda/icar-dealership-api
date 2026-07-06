@@ -45,7 +45,7 @@ export class ReportsService {
   }
 
   async incomeStatement(companyId: string, dateFrom: Date, dateTo: Date) {
-    const incomeTypes = ['INCOME', 'OTHER_INCOME'];
+    const incomeTypes = ['INCOME'];
     const expenseTypes = ['EXPENSE', 'COST_OF_REVENUE'];
 
     const rows = await this.prisma.journalEntryLine.groupBy({
@@ -122,7 +122,7 @@ export class ReportsService {
       const rows = await this.prisma.journalEntryLine.groupBy({
         by: ['accountId'],
         where: {
-          account: { companyId, type: { in: ['INCOME', 'EXPENSE', 'COGS', 'OTHER_INCOME'] as any[] } },
+          account: { companyId, type: { in: ['INCOME', 'EXPENSE', 'COST_OF_REVENUE'] as any[] } },
           journalEntry: { status: 'POSTED', date: { gte: from, lte: to }, journal: { companyId } },
         },
         _sum: { debit: true, credit: true },
@@ -142,7 +142,7 @@ export class ReportsService {
         if (!acc) continue;
         const credit = new Decimal(r._sum?.credit?.toString() ?? '0');
         const debit = new Decimal(r._sum?.debit?.toString() ?? '0');
-        if (['INCOME', 'OTHER_INCOME'].includes(acc.type)) revenue = revenue.plus(credit.minus(debit));
+        if (acc.type === 'INCOME') revenue = revenue.plus(credit.minus(debit));
         else expenses = expenses.plus(debit.minus(credit));
       }
       result.push({ month: monthLabel, revenue: revenue.toNumber(), expenses: expenses.toNumber() });
@@ -164,7 +164,7 @@ export class ReportsService {
       const rows = await this.prisma.journalEntryLine.groupBy({
         by: ['accountId'],
         where: {
-          account: { companyId, type: { in: ['INCOME', 'COGS', 'EXPENSE'] as any[] } },
+          account: { companyId, type: { in: ['INCOME', 'COST_OF_REVENUE', 'EXPENSE'] as any[] } },
           journalEntry: {
             status: 'POSTED',
             date: { gte: from },
@@ -196,20 +196,9 @@ export class ReportsService {
   }
 
   async balanceSheet(companyId: string, asOf: Date) {
-    const assetTypes = [
-      'ASSET',
-      'CURRENT_ASSET',
-      'FIXED_ASSET',
-      'BANK',
-      'CASH',
-    ];
-    const liabilityTypes = [
-      'LIABILITY',
-      'CURRENT_LIABILITY',
-      'LONG_TERM_LIABILITY',
-      'PAYABLE',
-    ];
-    const equityTypes = ['EQUITY', 'RETAINED_EARNINGS'];
+    const assetTypes = ['ASSET'];
+    const liabilityTypes = ['LIABILITY'];
+    const equityTypes = ['EQUITY'];
 
     const rows = await this.prisma.journalEntryLine.groupBy({
       by: ['accountId'],
@@ -448,20 +437,42 @@ export class ReportsService {
         )
         .div(tg.taxes.length);
 
-      const rows = await this.prisma.journalEntryLine.aggregate({
-        where: {
-          accountId: { in: accountIds },
-          journalEntry: {
-            status: 'POSTED',
-            date: { gte: dateFrom, lte: dateTo },
-            journal: { companyId },
-          },
-        },
-        _sum: { debit: true, credit: true },
+      // F-15: Split by account type — LIABILITY = output VAT (collected), ASSET = input VAT (reclaimable)
+      const taxAccounts = await this.prisma.account.findMany({
+        where: { id: { in: accountIds } },
+        select: { id: true, type: true },
       });
+      const liabilityIds = taxAccounts.filter((a) => a.type === 'LIABILITY').map((a) => a.id);
+      const assetIds = taxAccounts.filter((a) => a.type === 'ASSET').map((a) => a.id);
+      const periodWhere = {
+        journalEntry: {
+          status: 'POSTED' as const,
+          date: { gte: dateFrom, lte: dateTo },
+          journal: { companyId },
+        },
+      };
 
-      const taxCollected = new Decimal(rows._sum?.credit?.toString() ?? '0');
-      const taxPaid = new Decimal(rows._sum?.debit?.toString() ?? '0');
+      let taxCollected = new Decimal(0);
+      if (liabilityIds.length) {
+        const r = await this.prisma.journalEntryLine.aggregate({
+          where: { accountId: { in: liabilityIds }, ...periodWhere },
+          _sum: { credit: true, debit: true },
+        });
+        taxCollected = new Decimal(r._sum?.credit?.toString() ?? '0').minus(
+          new Decimal(r._sum?.debit?.toString() ?? '0'),
+        );
+      }
+
+      let taxPaid = new Decimal(0);
+      if (assetIds.length) {
+        const r = await this.prisma.journalEntryLine.aggregate({
+          where: { accountId: { in: assetIds }, ...periodWhere },
+          _sum: { debit: true, credit: true },
+        });
+        taxPaid = new Decimal(r._sum?.debit?.toString() ?? '0').minus(
+          new Decimal(r._sum?.credit?.toString() ?? '0'),
+        );
+      }
 
       results.push({
         taxGroupId: tg.id,
@@ -479,16 +490,12 @@ export class ReportsService {
   async vatReturnEta(companyId: string, dateFrom: Date, dateTo: Date) {
     // ETA VAT return — boxes 1-13 per Egyptian Tax Authority format
     const incomeAccounts = await this.prisma.account.findMany({
-      where: { companyId, type: { in: ['INCOME', 'OTHER_INCOME'] as any[] } },
+      where: { companyId, type: 'INCOME' },
       select: { id: true },
     });
     const expenseAccounts = await this.prisma.account.findMany({
-      where: { companyId, type: { in: ['EXPENSE', 'COGS'] as any[] } },
+      where: { companyId, type: { in: ['EXPENSE', 'COST_OF_REVENUE'] as any[] } },
       select: { id: true },
-    });
-    const taxAccounts = await this.prisma.account.findMany({
-      where: { companyId, code: { in: ['2100', '2110', '1310', '1320'] } },
-      select: { id: true, code: true, name: true },
     });
 
     const sumLines = async (accountIds: string[], sign: 1 | -1 = 1) => {
@@ -510,9 +517,22 @@ export class ReportsService {
 
     const totalSales = await sumLines(incomeIds, 1);
     const totalPurchases = await sumLines(expenseIds, -1);
-    const vatRate = new Decimal('0.14');
-    const vatOnSales = totalSales.times(vatRate);
-    const vatOnPurchases = totalPurchases.times(vatRate);
+
+    // F-17: Query actual posted VAT amounts instead of multiplying totals
+    const outputVatAccount = await this.prisma.account.findFirst({
+      where: { companyId, code: '2200' },
+      select: { id: true },
+    });
+    const inputVatAccount = await this.prisma.account.findFirst({
+      where: { companyId, code: '1350' },
+      select: { id: true },
+    });
+    const vatOnSales = outputVatAccount
+      ? await sumLines([outputVatAccount.id], 1)
+      : new Decimal(0);
+    const vatOnPurchases = inputVatAccount
+      ? await sumLines([inputVatAccount.id], -1)
+      : new Decimal(0);
     const netVatPayable = vatOnSales.minus(vatOnPurchases);
 
     // ETA Box mapping (simplified standard-rate only — no exempt/zero-rated split without invoice-level tax codes)

@@ -37,7 +37,7 @@ export class CommissionsController {
   ) {
     // SALES_REP can only see their own commissions
     const effectiveUserId =
-      req?.user?.role === 'SALES_REP' ? req.user.sub : userId;
+      req?.user?.role === 'SALES_REP' ? req.user.id : userId;
     return this.svc.list({
       status,
       userId: effectiveUserId,
@@ -82,7 +82,7 @@ export class CommissionsController {
     @Body() body: { commissionIds: string[]; journalId: string },
     @Req() req: any,
   ) {
-    return this.svc.batchPay(body.commissionIds, body.journalId, req.user.sub);
+    return this.svc.batchPay(body.commissionIds, body.journalId, req.user.id);
   }
 
   // UI alias: POST /finance/commissions/pay
@@ -98,6 +98,6 @@ export class CommissionsController {
     },
     @Req() req: any,
   ) {
-    return this.svc.batchPay(body.commissionIds, body.journalId, req.user.sub);
+    return this.svc.batchPay(body.commissionIds, body.journalId, req.user.id);
   }
 }

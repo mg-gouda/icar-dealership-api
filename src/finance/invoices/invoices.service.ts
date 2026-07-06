@@ -214,32 +214,37 @@ export class InvoicesService {
     if (inv.status !== 'DRAFT')
       throw new BadRequestException('Can only add lines to DRAFT invoices');
 
+    // B-16: Atomic — create line + recompute totals in single transaction
     const lineSubtotal = Number(dto.quantity) * Number(dto.unitPrice);
-    const line = await this.prisma.invoiceLine.create({
-      data: {
-        invoiceId,
-        description: dto.description,
-        quantity: dto.quantity,
-        unitPrice: dto.unitPrice,
-        subtotal: lineSubtotal,
-        accountId: dto.accountId,
-        taxId: dto.taxId || undefined,
-      },
-      include: { account: true, tax: true },
-    });
+    const line = await this.prisma.$transaction(async (tx) => {
+      const l = await tx.invoiceLine.create({
+        data: {
+          invoiceId,
+          description: dto.description,
+          quantity: dto.quantity,
+          unitPrice: dto.unitPrice,
+          subtotal: lineSubtotal,
+          accountId: dto.accountId,
+          taxId: dto.taxId || undefined,
+        },
+        include: { account: true, tax: true },
+      });
 
-    // recompute invoice totals
-    const allLines = await this.prisma.invoiceLine.findMany({
-      where: { invoiceId },
-    });
-    const newSubtotal = allLines.reduce((s, l) => s + Number(l.subtotal), 0);
-    await this.prisma.invoice.update({
-      where: { id: invoiceId },
-      data: {
-        amountUntaxed: newSubtotal,
-        amountTotal: newSubtotal,
-        amountResidual: newSubtotal,
-      },
+      // recompute invoice totals
+      const allLines = await tx.invoiceLine.findMany({
+        where: { invoiceId },
+      });
+      const newSubtotal = allLines.reduce((s, ln) => s + Number(ln.subtotal), 0);
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          amountUntaxed: newSubtotal,
+          amountTotal: newSubtotal,
+          amountResidual: newSubtotal,
+        },
+      });
+
+      return l;
     });
 
     await this.audit.log({

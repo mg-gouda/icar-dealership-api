@@ -24,7 +24,6 @@ export async function getRate(
   const rateRecord = await (db as any).currencyRate.findFirst({
     where: {
       currencyId,
-      companyId,
       date: { lte: date },
     },
     orderBy: { date: 'desc' },

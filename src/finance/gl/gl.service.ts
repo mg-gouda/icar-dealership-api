@@ -280,10 +280,12 @@ export class GlService {
     const entry = await this.getEntry(id);
     if (entry.status !== 'DRAFT')
       throw new BadRequestException('Only DRAFT entries can be deleted');
-    await this.prisma.journalEntryLine.deleteMany({
-      where: { journalEntryId: id },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.journalEntryLine.deleteMany({
+        where: { journalEntryId: id },
+      });
+      await tx.journalEntry.delete({ where: { id } });
     });
-    await this.prisma.journalEntry.delete({ where: { id } });
     await this.audit.log({
       entity: 'JournalEntry',
       entityId: id,
@@ -386,12 +388,21 @@ export class GlService {
         );
         if (Math.abs(totalDebit - totalCredit) > 0.01) continue; // skip unbalanced
 
+        // B-7: Fiscal period check before creating recurring entry
+        const fiscal = await tx.fiscalYear.findFirst({
+          where: { companyId, startDate: { lte: asOf }, endDate: { gte: asOf } },
+        });
+        if (!fiscal)
+          throw new BadRequestException('No open fiscal year for the posting date.');
+        if (fiscal.lockDate && asOf <= fiscal.lockDate)
+          throw new BadRequestException('Fiscal period is locked.');
+
         await tx.journalEntry.create({
           data: {
             journalId: tmpl.journalId,
             date: asOf,
             ref: `REC-${tmpl.name.slice(0, 8).toUpperCase()}-${asOf.toISOString().slice(0, 7)}`,
-            status: 'POSTED',
+            status: 'DRAFT',
             recurringTemplateId: tmpl.id,
             lines: {
               create: tmpl.lines.map((l) => ({
@@ -497,10 +508,12 @@ export class GlService {
     });
     if (!tmpl)
       throw new NotFoundException(`Recurring template ${id} not found`);
-    await this.prisma.recurringJournalEntryTemplateLine.deleteMany({
-      where: { templateId: id },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.recurringJournalEntryTemplateLine.deleteMany({
+        where: { templateId: id },
+      });
+      await tx.recurringJournalEntryTemplate.delete({ where: { id } });
     });
-    await this.prisma.recurringJournalEntryTemplate.delete({ where: { id } });
     await this.audit.log({
       entity: 'RecurringJournalEntryTemplate',
       entityId: id,
