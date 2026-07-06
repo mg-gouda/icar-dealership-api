@@ -49,6 +49,7 @@ import { TransfersModule } from './transfers/transfers.module';
 import { PettyCashModule } from './petty-cash/petty-cash.module';
 import { ImportShipmentsModule } from './import-shipments/import-shipments.module';
 import { FloorPlanModule } from './floor-plan/floor-plan.module';
+import { OperationalReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -114,6 +115,9 @@ import { FloorPlanModule } from './floor-plan/floor-plan.module';
     PettyCashModule,
     ImportShipmentsModule,
     FloorPlanModule,
+
+    // Operational Reports
+    OperationalReportsModule,
 
     // Cross-cutting
     MailModule,
