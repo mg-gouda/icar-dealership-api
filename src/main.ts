@@ -24,19 +24,18 @@ async function bootstrap() {
   );
 
   // CORS
-  const allowedOrigins = (process.env.CORS_ORIGINS ?? '')
+  // ponytail: allow all localhost:3xxx + any explicit CORS_ORIGINS from env
+  const envOrigins = (process.env.CORS_ORIGINS ?? '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
-  const b2cOrigin = process.env.B2C_ORIGIN ?? 'http://localhost:3002';
+  const devLocalhostRe = /^http:\/\/localhost:(3\d{3}|4\d{3})$/;
 
   app.enableCors({
     origin: (origin, cb) => {
-      // Finance endpoints reject B2C origin — admin only
-      // (request-path check is in the callback via a NestJS middleware instead;
-      //  CORS here allows admin + same-origin, B2C for non-finance)
-      if (!origin || allowedOrigins.length === 0) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
+      if (!origin) return cb(null, true); // same-origin / curl
+      if (devLocalhostRe.test(origin)) return cb(null, true);
+      if (envOrigins.includes(origin)) return cb(null, true);
       cb(new Error('Not allowed by CORS'), false);
     },
     credentials: true,
@@ -44,13 +43,12 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  // ponytail: Block B2C origin from /finance/** at middleware level (belt+suspenders)
+  // ponytail: block B2C ports from /finance/** — admin-only endpoints
+  const adminOrigins = ['http://localhost:3001', ...(process.env.ADMIN_ORIGINS ?? '').split(',').filter(Boolean)];
   app.use((req: any, res: any, next: any) => {
     const origin = req.headers['origin'] as string | undefined;
-    if (origin === b2cOrigin && req.path.startsWith('/api/v1/finance')) {
-      return res
-        .status(403)
-        .json({ message: 'Finance endpoints not accessible from B2C origin' });
+    if (origin && !adminOrigins.includes(origin) && req.path.startsWith('/api/v1/finance')) {
+      return res.status(403).json({ message: 'Finance endpoints not accessible from this origin' });
     }
     next();
   });
@@ -78,7 +76,7 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
-  const port = process.env.PORT ?? 4000;
+  const port = process.env.PORT ?? 4001;
   await app.listen(port);
   console.log(`🚀  API running on http://localhost:${port}/api`);
 }
