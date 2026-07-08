@@ -307,6 +307,8 @@ model Company {
   pettyCashVouchers PettyCashVoucher[] @relation("PettyCashVoucherCompany")
   floorPlanNotes    FloorPlanNote[]    @relation("FloorPlanNoteCompany")
   whtCategories     WhtCategory[]      @relation("WhtCategoryCompany")
+  lookupItems        LookupItem[]        @relation("LookupItemCompany")
+  accreditedDealers  AccreditedDealer[]  @relation("AccreditedDealerCompany")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -322,6 +324,8 @@ model Location {
   state       String?
   zip         String?
   phone       String?
+  email       String?
+  manager     String?
   timezone    String  @default("UTC")
   logoUrl     String?
   displayName String?
@@ -335,6 +339,8 @@ model Location {
   // Egypt-specific defaults, applied to Deal pricing unless overridden on the Vehicle/Deal
   defaultAdminFee     Decimal? @db.Decimal(14, 2)
   defaultInsuranceFee Decimal? @db.Decimal(14, 2)
+
+  isActive Boolean @default(true)
 
   users           User[]
   vehicles        Vehicle[]
@@ -396,6 +402,7 @@ model User {
   pettyCashSubmissions PettyCashVoucher[] @relation("PettyCashSubmitter")
   pettyCashApprovals   PettyCashVoucher[] @relation("PettyCashApprover")
   lockedFiscalPeriods  FiscalPeriod[]     @relation("FiscalPeriodLockedBy")
+  dealNotes            DealNote[]         @relation("DealNoteAuthor")
 
   totpSecret       String?
   totpEnabled      Boolean   @default(false)
@@ -474,7 +481,7 @@ model Partner {
 
 model Vehicle {
   id           String        @id @default(cuid())
-  vin          String        @unique
+  vin          String?       @unique
   make         String
   model        String
   year         Int
@@ -485,11 +492,40 @@ model Vehicle {
   status       VehicleStatus @default(IN_TRANSIT)
   locationId   String
   location     Location      @relation(fields: [locationId], references: [id])
+  accreditedDealerId String?
+  accreditedDealer   AccreditedDealer? @relation(fields: [accreditedDealerId], references: [id])
   bodyType     String?
   fuelType     String?
   transmission String?
   color        String?
   description  String?
+  condition    String?
+
+  // Specs & Drivetrain
+  engineSize   String?
+  hp           Int?
+  torque       Int?
+  driveType    String?
+  gearType     String?
+  doors        Int?
+  seats        Int?
+
+  // Used vehicle details
+  regLicenseNumber         String?
+  licenseExpiryDate        DateTime?
+  engineChanged            Boolean  @default(false)
+  newEngineNumber          String?
+  accidentHistory          Boolean  @default(false)
+  affectedParts            String?
+  engineConditionPct       Int?
+  transmissionConditionPct Int?
+
+  // Used vehicle pricing inputs
+  customerAskingPrice Decimal? @db.Decimal(14, 2)
+  minimumAskingPrice  Decimal? @db.Decimal(14, 2)
+  overprice           Decimal? @db.Decimal(14, 2)
+  acquisitionCost     Decimal? @db.Decimal(14, 2)
+  salePrice           Decimal? @db.Decimal(14, 2)
 
   // Egypt-specific: overrides Location default fees for this specific vehicle
   adminFeeOverride     Decimal? @db.Decimal(14, 2)
@@ -519,6 +555,7 @@ model Vehicle {
 
   @@index([locationId])
   @@index([status])
+  @@index([accreditedDealerId])
 }
 
 model VehicleImage {
@@ -624,6 +661,7 @@ model Deal {
   payments           Payment[]
   commissions        DealCommission[]
   serviceOrders      ServiceOrder[]
+  notes              DealNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -632,6 +670,21 @@ model Deal {
   @@index([salesRepId])
   @@index([customerId])
   @@index([vehicleId])
+}
+
+model DealNote {
+  id      String  @id @default(cuid())
+  dealId  String
+  deal    Deal    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User    @relation("DealNoteAuthor", fields: [userId], references: [id])
+  type    String  @default("NOTE")
+  content String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dealId])
 }
 
 model FinanceApplication {
@@ -1802,4 +1855,59 @@ model WhtCategory {
   isActive    Boolean   @default(true)
   payments    Payment[]
   createdAt   DateTime  @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Lookup Items — manages editable dropdown lists (car make, color, body type…)
+// ---------------------------------------------------------------------------
+
+model LookupItem {
+  id        String  @id @default(cuid())
+  category  String  // car_make | car_color | body_type | fuel_type | transmission
+  value     String
+  label     String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  companyId String
+  company   Company @relation("LookupItemCompany", fields: [companyId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, category, value])
+  @@index([companyId, category, active])
+}
+
+// ---------------------------------------------------------------------------
+// Accredited Car Dealers — manufacturer/importer relationships
+// ---------------------------------------------------------------------------
+
+model AccreditedDealer {
+  id           String   @id @default(cuid())
+  name         String
+  contactName  String?
+  contactPhone String?
+  contactEmail String?
+
+  carMakes     String[] // values from LookupItem car_make category
+
+  gracePeriodDays  Int     @default(30)  // days before full payment due
+
+  // Monthly targets
+  monthlyTarget    Int     @default(0)   // cars to sell per month
+  minimumMonthly   Int     @default(0)   // bare minimum per month
+  targetBonus      Decimal @default(0)   @db.Decimal(14, 2) // EGP bonus if target met
+  kickbackPercent  Decimal @default(0)   @db.Decimal(5, 2)  // % of dealer price per car
+
+  active    Boolean  @default(true)
+  companyId String
+  company   Company  @relation("AccreditedDealerCompany", fields: [companyId], references: [id])
+
+  vehicles  Vehicle[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, active])
 }

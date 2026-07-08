@@ -1012,4 +1012,32 @@ export class DealsService {
       }
     }
   }
+
+  async getNotes(dealId: string) {
+    return this.prisma.dealNote.findMany({
+      where: { dealId },
+      include: { user: { select: { id: true, name: true, role: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async addNote(dealId: string, userId: string, data: { type?: string; content: string }) {
+    return this.prisma.dealNote.create({
+      data: {
+        dealId,
+        userId,
+        type: data.type ?? 'NOTE',
+        content: data.content,
+      },
+      include: { user: { select: { id: true, name: true, role: true } } },
+    });
+  }
+
+  async deleteNote(noteId: string, userId: string, userRole: string) {
+    const note = await this.prisma.dealNote.findUniqueOrThrow({ where: { id: noteId } });
+    if (note.userId !== userId && !['ADMIN', 'SUPER_ADMIN'].includes(userRole)) {
+      throw new ForbiddenException('Cannot delete another user\'s note');
+    }
+    return this.prisma.dealNote.delete({ where: { id: noteId } });
+  }
 }

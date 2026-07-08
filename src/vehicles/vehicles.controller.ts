@@ -44,6 +44,7 @@ export class VehiclesController {
     @Query('bodyType') bodyType?: string,
     @Query('minPrice') minPrice?: number,
     @Query('maxPrice') maxPrice?: number,
+    @Query('accreditedDealerId') accreditedDealerId?: string,
   ) {
     return this.vehiclesService.findAll({
       page: +page,
@@ -54,6 +55,7 @@ export class VehiclesController {
       bodyType,
       minPrice,
       maxPrice,
+      accreditedDealerId,
     });
   }
 

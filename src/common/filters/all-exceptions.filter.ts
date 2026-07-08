@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -17,18 +18,33 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const status =
-      exception instanceof HttpException
-        ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+    let status: number;
+    let message: string | object;
 
-    const message =
-      exception instanceof HttpException
-        ? exception.getResponse()
-        : 'Internal server error';
+    if (exception instanceof PrismaClientKnownRequestError) {
+      if (exception.code === 'P2025') {
+        status = HttpStatus.NOT_FOUND;
+        message = 'Record not found';
+      } else if (exception.code === 'P2002') {
+        status = HttpStatus.CONFLICT;
+        message = 'A record with this value already exists';
+      } else {
+        status = HttpStatus.INTERNAL_SERVER_ERROR;
+        message = 'Database error';
+      }
+    } else if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      message = exception.getResponse();
+    } else {
+      status = HttpStatus.INTERNAL_SERVER_ERROR;
+      message = 'Internal server error';
+    }
 
-    if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
+    if (status >= 500) {
       this.logger.error(exception);
+    } else if (status >= 400) {
+      const userId = (request as any).user?.id ?? 'anonymous';
+      this.logger.warn({ ip: request.ip, path: request.url, userId, status });
     }
 
     response.status(status).json({

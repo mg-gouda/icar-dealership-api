@@ -206,4 +206,22 @@ export class DealsController {
   ) {
     return this.svc.removeCommissionSplit(id, commissionId, req.user.id);
   }
+
+  @Get(':id/notes')
+  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  getNotes(@Param('id') id: string) {
+    return this.svc.getNotes(id);
+  }
+
+  @Post(':id/notes')
+  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  addNote(@Param('id') id: string, @Request() req: any, @Body() body: any) {
+    return this.svc.addNote(id, req.user.id, body);
+  }
+
+  @Delete(':id/notes/:noteId')
+  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  deleteNote(@Param('id') id: string, @Param('noteId') noteId: string, @Request() req: any) {
+    return this.svc.deleteNote(noteId, req.user.id, req.user.role);
+  }
 }

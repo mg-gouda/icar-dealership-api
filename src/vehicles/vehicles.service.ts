@@ -8,6 +8,7 @@ export interface VehicleFilters {
   bodyType?: string;
   minPrice?: number;
   maxPrice?: number;
+  accreditedDealerId?: string;
   page?: number;
   limit?: number;
 }
@@ -26,6 +27,7 @@ export class VehiclesService {
       bodyType,
       minPrice,
       maxPrice,
+      accreditedDealerId,
     } = filters;
     const skip = (page - 1) * limit;
 
@@ -34,6 +36,7 @@ export class VehiclesService {
     if (status) where.status = status;
     if (make) where.make = { contains: make, mode: 'insensitive' };
     if (bodyType) where.bodyType = bodyType;
+    if (accreditedDealerId) where.accreditedDealerId = accreditedDealerId;
     if (minPrice || maxPrice) {
       where.price = {};
       if (minPrice) where.price.gte = minPrice;
@@ -49,6 +52,7 @@ export class VehiclesService {
         include: {
           images: { orderBy: { order: 'asc' }, take: 1 },
           location: { select: { id: true, name: true } },
+          accreditedDealer: { select: { id: true, name: true } },
         },
       }),
       this.prisma.vehicle.count({ where }),
@@ -65,20 +69,47 @@ export class VehiclesService {
         images: { orderBy: { order: 'asc' } },
         features: true,
         location: { select: { id: true, name: true, city: true } },
+        accreditedDealer: { select: { id: true, name: true } },
       },
     });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
     return vehicle;
   }
 
+  private prepareVehicleData(dto: any) {
+    const { features, supplierId, licenseExpiryDate, ...rest } = dto;
+    // Strip undefined so Prisma doesn't see explicit undefined for optional fields
+    const data: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(rest)) {
+      if (v !== undefined) data[k] = v;
+    }
+    return {
+      data,
+      features: (features as string[] | undefined) ?? [],
+      supplierId: supplierId as string | undefined,
+      licenseExpiryDate: licenseExpiryDate
+        ? new Date(licenseExpiryDate)
+        : undefined,
+    };
+  }
+
   async create(dto: any) {
+    const { data, features, supplierId, licenseExpiryDate } =
+      this.prepareVehicleData(dto);
+    const createData: any = {
+      ...data,
+      ...(licenseExpiryDate ? { licenseExpiryDate } : {}),
+      ...(features.length
+        ? { features: { create: features.map((f: string) => ({ feature: f })) } }
+        : {}),
+    };
     const vehicle = await this.prisma.vehicle.create({
-      data: dto,
-      include: { images: true },
+      data: createData,
+      include: { images: true, features: true },
     });
 
     // ponytail: auto-create DRAFT vendor bill when cost + supplierId provided
-    if (dto.cost && Number(dto.cost) > 0 && dto.supplierId) {
+    if (data.cost && Number(data.cost) > 0 && supplierId) {
       const location = await this.prisma.location.findUnique({
         where: { id: vehicle.locationId },
         include: {
@@ -97,7 +128,7 @@ export class VehiclesService {
             type: 'VENDOR_BILL',
             status: 'DRAFT',
             journalId: purchJournal.id,
-            partnerId: dto.supplierId,
+            partnerId: supplierId,
             vendorBillSourceVehicleId: vehicle.id,
             date: new Date(),
             lines: {
@@ -106,8 +137,8 @@ export class VehiclesService {
                   accountId: inventoryAccount.id,
                   description: `Vehicle acquisition: ${vehicle.year} ${vehicle.make} ${vehicle.model} (${vehicle.vin ?? vehicle.id})`,
                   quantity: 1,
-                  unitPrice: Number(dto.cost),
-                  subtotal: Number(dto.cost),
+                  unitPrice: Number(data.cost),
+                  subtotal: Number(data.cost),
                 },
               ],
             },
@@ -121,10 +152,22 @@ export class VehiclesService {
 
   async update(id: string, dto: any) {
     await this.findById(id);
+    const { data, features, licenseExpiryDate } = this.prepareVehicleData(dto);
     return this.prisma.vehicle.update({
       where: { id },
-      data: dto,
-      include: { images: true },
+      data: {
+        ...data,
+        ...(licenseExpiryDate !== undefined ? { licenseExpiryDate } : {}),
+        ...(dto.features !== undefined
+          ? {
+              features: {
+                deleteMany: {},
+                create: features.map((f: string) => ({ feature: f })),
+              },
+            }
+          : {}),
+      },
+      include: { images: true, features: true },
     });
   }
 
