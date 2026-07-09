@@ -298,17 +298,20 @@ model Company {
   fiscalYears   FiscalYear[]
   fiscalPeriods FiscalPeriod[] @relation("FiscalPeriodCompany")
 
-  serviceOrders     ServiceOrder[]     @relation("ServiceOrderCompany")
-  parts             Part[]             @relation("PartCompany")
-  salesTargets      SalesTarget[]      @relation("SalesTargetCompany")
-  whatsAppMessages  WhatsAppMessage[]  @relation("WhatsAppMessageCompany")
-  importShipments   ImportShipment[]   @relation("ImportShipmentCompany")
-  pettyCashFunds    PettyCashFund[]    @relation("PettyCashFundCompany")
-  pettyCashVouchers PettyCashVoucher[] @relation("PettyCashVoucherCompany")
-  floorPlanNotes    FloorPlanNote[]    @relation("FloorPlanNoteCompany")
-  whtCategories     WhtCategory[]      @relation("WhtCategoryCompany")
-  lookupItems       LookupItem[]       @relation("LookupItemCompany")
-  accreditedDealers AccreditedDealer[] @relation("AccreditedDealerCompany")
+  serviceOrders       ServiceOrder[]       @relation("ServiceOrderCompany")
+  parts               Part[]               @relation("PartCompany")
+  salesTargets        SalesTarget[]        @relation("SalesTargetCompany")
+  whatsAppMessages    WhatsAppMessage[]    @relation("WhatsAppMessageCompany")
+  importShipments     ImportShipment[]     @relation("ImportShipmentCompany")
+  pettyCashFunds      PettyCashFund[]      @relation("PettyCashFundCompany")
+  pettyCashVouchers   PettyCashVoucher[]   @relation("PettyCashVoucherCompany")
+  floorPlanNotes      FloorPlanNote[]      @relation("FloorPlanNoteCompany")
+  whtCategories       WhtCategory[]        @relation("WhtCategoryCompany")
+  lookupItems         LookupItem[]         @relation("LookupItemCompany")
+  accreditedDealers   AccreditedDealer[]   @relation("AccreditedDealerCompany")
+  partReturns         PartReturn[]         @relation("PartReturnCompany")
+  manufacturerRMAs    ManufacturerRMA[]    @relation("RMACompany")
+  supplierCreditNotes SupplierCreditNote[] @relation("SupplierCreditCompany")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -353,12 +356,15 @@ model Location {
   commissionPlans CommissionPlan[]
   analyticAccount AnalyticAccount?
 
-  serviceOrders   ServiceOrder[]
-  parts           Part[]
-  salesTargets    SalesTarget[]
-  importShipments ImportShipment[]
-  pettyCashFunds  PettyCashFund[]
-  floorPlanNotes  FloorPlanNote[]
+  serviceOrders       ServiceOrder[]
+  parts               Part[]
+  salesTargets        SalesTarget[]
+  importShipments     ImportShipment[]
+  pettyCashFunds      PettyCashFund[]
+  floorPlanNotes      FloorPlanNote[]
+  partReturns         PartReturn[]         @relation("PartReturnLocation")
+  manufacturerRMAs    ManufacturerRMA[]    @relation("RMALocation")
+  supplierCreditNotes SupplierCreditNote[] @relation("SupplierCreditLocation")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -403,6 +409,7 @@ model User {
   pettyCashApprovals   PettyCashVoucher[] @relation("PettyCashApprover")
   lockedFiscalPeriods  FiscalPeriod[]     @relation("FiscalPeriodLockedBy")
   dealNotes            DealNote[]         @relation("DealNoteAuthor")
+  partReturnApprovals  PartReturn[]       @relation("PartReturnApprover")
 
   totpSecret       String?
   totpEnabled      Boolean   @default(false)
@@ -471,9 +478,11 @@ model Partner {
   purchaseOrders    PurchaseOrder[]
   journalEntryLines JournalEntryLine[]
 
-  serviceOrders    ServiceOrder[]
-  suppliedParts    Part[]            @relation("PartSupplier")
-  whatsAppMessages WhatsAppMessage[] @relation("CustomerWhatsApp")
+  serviceOrders       ServiceOrder[]
+  suppliedParts       Part[]               @relation("PartSupplier")
+  whatsAppMessages    WhatsAppMessage[]    @relation("CustomerWhatsApp")
+  manufacturerRMAs    ManufacturerRMA[]    @relation("RMASupplier")
+  supplierCreditNotes SupplierCreditNote[] @relation("SupplierCreditNotes")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -620,9 +629,9 @@ model LeadActivity {
 }
 
 model Deal {
-  id             String     @id @default(cuid())
-  trackingToken  String     @unique @default(cuid())
-  status         DealStatus @default(DRAFT)
+  id            String     @id @default(cuid())
+  trackingToken String     @unique @default(cuid())
+  status        DealStatus @default(DRAFT)
 
   leadId String?
   lead   Lead?   @relation(fields: [leadId], references: [id])
@@ -1674,6 +1683,8 @@ model Part {
   supplierId    String?
   supplier      Partner?           @relation("PartSupplier", fields: [supplierId], references: [id])
   serviceLines  ServiceOrderLine[]
+  partReturns   PartReturn[]       @relation("PartReturns")
+  rmaLines      RMALine[]          @relation("PartRMALines")
   companyId     String
   company       Company            @relation("PartCompany", fields: [companyId], references: [id])
   isActive      Boolean            @default(true)
@@ -1927,4 +1938,159 @@ model LoginAttempt {
 
   @@index([identifier, attemptedAt])
   @@index([ip, attemptedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Spare Parts Returns Workflow
+// ---------------------------------------------------------------------------
+
+enum PartReturnReason {
+  WARRANTY
+  DEFECTIVE
+  WRONG_PART
+  CHANGE_OF_MIND
+  DAMAGED_IN_TRANSIT
+  OTHER
+}
+
+enum PartReturnStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum PartRefundMethod {
+  CASH
+  REPLACEMENT
+  CC_REFUND
+  CREDIT_NOTE
+}
+
+enum InventoryReturnStatus {
+  RETURNED_TO_STOCK
+  QUARANTINE
+}
+
+enum RMAStatus {
+  DRAFT
+  SUBMITTED
+  SENT_WITH_ORDER
+  RESOLVED
+}
+
+enum RMAResolutionType {
+  CASH_REFUND
+  CREDIT_NOTE
+}
+
+model PartReturn {
+  id              String                 @id @default(cuid())
+  returnNumber    String                 @unique
+  partId          String
+  part            Part                   @relation("PartReturns", fields: [partId], references: [id])
+  qty             Decimal                @db.Decimal(10, 3)
+  reason          PartReturnReason
+  refundMethod    PartRefundMethod
+  status          PartReturnStatus       @default(PENDING_APPROVAL)
+  inventoryStatus InventoryReturnStatus?
+  customerName    String?
+  customerPhone   String?
+  saleRef         String?
+  originalAmount  Decimal                @db.Decimal(14, 2)
+  notes           String?
+  approvedById    String?
+  approvedBy      User?                  @relation("PartReturnApprover", fields: [approvedById], references: [id])
+  approvedAt      DateTime?
+  rejectionReason String?
+  locationId      String
+  location        Location               @relation("PartReturnLocation", fields: [locationId], references: [id])
+  companyId       String
+  company         Company                @relation("PartReturnCompany", fields: [companyId], references: [id])
+  rmaLines        RMALine[]
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([partId])
+  @@index([status])
+  @@index([locationId])
+  @@index([companyId])
+}
+
+model ManufacturerRMA {
+  id               String               @id @default(cuid())
+  rmaNumber        String               @unique
+  supplierId       String
+  supplier         Partner              @relation("RMASupplier", fields: [supplierId], references: [id])
+  status           RMAStatus            @default(DRAFT)
+  lines            RMALine[]
+  resolutionType   RMAResolutionType?
+  resolutionAmount Decimal?             @db.Decimal(14, 2)
+  creditNoteRef    String?
+  notes            String?
+  submittedAt      DateTime?
+  sentAt           DateTime?
+  resolvedAt       DateTime?
+  creditNotes      SupplierCreditNote[]
+  locationId       String
+  location         Location             @relation("RMALocation", fields: [locationId], references: [id])
+  companyId        String
+  company          Company              @relation("RMACompany", fields: [companyId], references: [id])
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([companyId])
+}
+
+model RMALine {
+  id           String          @id @default(cuid())
+  rmaId        String
+  rma          ManufacturerRMA @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  partReturnId String
+  partReturn   PartReturn      @relation(fields: [partReturnId], references: [id])
+  partId       String
+  part         Part            @relation("PartRMALines", fields: [partId], references: [id])
+  qty          Decimal         @db.Decimal(10, 3)
+  unitCost     Decimal         @db.Decimal(14, 2)
+  createdAt    DateTime        @default(now())
+
+  @@index([rmaId])
+  @@index([partReturnId])
+}
+
+model SupplierCreditNote {
+  id               String            @id @default(cuid())
+  creditNoteNumber String            @unique
+  supplierId       String
+  supplier         Partner           @relation("SupplierCreditNotes", fields: [supplierId], references: [id])
+  rmaId            String
+  rma              ManufacturerRMA   @relation(fields: [rmaId], references: [id])
+  totalAmount      Decimal           @db.Decimal(14, 2)
+  usedAmount       Decimal           @default(0) @db.Decimal(14, 2)
+  expiryDate       DateTime?
+  notes            String?
+  usages           CreditNoteUsage[]
+  locationId       String
+  location         Location          @relation("SupplierCreditLocation", fields: [locationId], references: [id])
+  companyId        String
+  company          Company           @relation("SupplierCreditCompany", fields: [companyId], references: [id])
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([supplierId])
+  @@index([companyId])
+}
+
+model CreditNoteUsage {
+  id               String             @id @default(cuid())
+  creditNoteId     String
+  creditNote       SupplierCreditNote @relation(fields: [creditNoteId], references: [id])
+  purchaseOrderRef String?
+  amountUsed       Decimal            @db.Decimal(14, 2)
+  usedAt           DateTime           @default(now())
+  notes            String?
+
+  @@index([creditNoteId])
 }

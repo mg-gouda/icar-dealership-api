@@ -6,6 +6,9 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { Decimal } from '@prisma/client/runtime/library';
+import type { CreatePartReturnDto } from './dto/part-return.dto';
+import type { CreateRMADto, ResolveRMADto } from './dto/rma.dto';
+import type { ApplyCreditDto } from './dto/supplier-credit.dto';
 
 @Injectable()
 export class PartsService {
@@ -206,5 +209,376 @@ export class PartsService {
       userId,
     });
     return updated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Part Returns
+  // ---------------------------------------------------------------------------
+
+  private async generateSequence(prefix: string, model: 'partReturn' | 'manufacturerRMA' | 'supplierCreditNote'): Promise<string> {
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 86_400_000);
+
+    // ponytail: count today's records for sequence
+    let count: number;
+    if (model === 'partReturn') {
+      count = await this.prisma.partReturn.count({
+        where: { createdAt: { gte: startOfDay, lt: endOfDay } },
+      });
+    } else if (model === 'manufacturerRMA') {
+      count = await this.prisma.manufacturerRMA.count({
+        where: { createdAt: { gte: startOfDay, lt: endOfDay } },
+      });
+    } else {
+      count = await this.prisma.supplierCreditNote.count({
+        where: { createdAt: { gte: startOfDay, lt: endOfDay } },
+      });
+    }
+    return `${prefix}-${dateStr}-${String(count + 1).padStart(3, '0')}`;
+  }
+
+  async listReturns(companyId: string, query: {
+    status?: string;
+    locationId?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const { status, locationId, page = 1, limit = 20 } = query;
+    const where: any = {
+      companyId,
+      ...(status && { status }),
+      ...(locationId && { locationId }),
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.partReturn.findMany({
+        where,
+        include: {
+          part: { select: { id: true, name: true, partNumber: true } },
+          approvedBy: { select: { id: true, name: true } },
+          location: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (Number(page) - 1) * Number(limit),
+        take: Number(limit),
+      }),
+      this.prisma.partReturn.count({ where }),
+    ]);
+    return { data, total, page: Number(page), limit: Number(limit) };
+  }
+
+  async createReturn(companyId: string, dto: CreatePartReturnDto) {
+    await this.prisma.part.findUniqueOrThrow({ where: { id: dto.partId } });
+    const returnNumber = await this.generateSequence('RETN', 'partReturn');
+
+    return this.prisma.partReturn.create({
+      data: {
+        returnNumber,
+        partId: dto.partId,
+        qty: dto.qty,
+        reason: dto.reason,
+        refundMethod: dto.refundMethod,
+        customerName: dto.customerName,
+        customerPhone: dto.customerPhone,
+        saleRef: dto.saleRef,
+        originalAmount: dto.originalAmount,
+        notes: dto.notes,
+        locationId: dto.locationId,
+        companyId,
+      },
+    });
+  }
+
+  async getReturn(companyId: string, id: string) {
+    const ret = await this.prisma.partReturn.findFirst({
+      where: { id, companyId },
+      include: {
+        part: { select: { id: true, name: true, partNumber: true, costPrice: true, salePrice: true } },
+        approvedBy: { select: { id: true, name: true } },
+        location: { select: { id: true, name: true } },
+      },
+    });
+    if (!ret) throw new NotFoundException(`PartReturn ${id} not found`);
+    return ret;
+  }
+
+  async approveReturn(companyId: string, id: string, approverId: string) {
+    const ret = await this.prisma.partReturn.findFirst({
+      where: { id, companyId, status: 'PENDING_APPROVAL' },
+    });
+    if (!ret) throw new NotFoundException(`Pending PartReturn ${id} not found`);
+
+    const inventoryStatus = ret.reason === 'DEFECTIVE' ? 'QUARANTINE' : 'RETURNED_TO_STOCK';
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.partReturn.update({
+        where: { id },
+        data: {
+          status: 'APPROVED',
+          inventoryStatus: inventoryStatus as any,
+          approvedById: approverId,
+          approvedAt: new Date(),
+        },
+      });
+
+      // Restock if returned to stock
+      if (inventoryStatus === 'RETURNED_TO_STOCK') {
+        await tx.part.update({
+          where: { id: ret.partId },
+          data: { onHand: { increment: ret.qty } },
+        });
+      }
+
+      return updated;
+    });
+  }
+
+  async rejectReturn(companyId: string, id: string, rejectionReason: string) {
+    const ret = await this.prisma.partReturn.findFirst({
+      where: { id, companyId, status: 'PENDING_APPROVAL' },
+    });
+    if (!ret) throw new NotFoundException(`Pending PartReturn ${id} not found`);
+
+    return this.prisma.partReturn.update({
+      where: { id },
+      data: { status: 'REJECTED', rejectionReason },
+    });
+  }
+
+  async completeReturn(companyId: string, id: string) {
+    const ret = await this.prisma.partReturn.findFirst({
+      where: { id, companyId, status: 'APPROVED' },
+    });
+    if (!ret) throw new NotFoundException(`Approved PartReturn ${id} not found`);
+
+    return this.prisma.partReturn.update({
+      where: { id },
+      data: { status: 'COMPLETED' },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Manufacturer RMAs
+  // ---------------------------------------------------------------------------
+
+  async listRMAs(companyId: string, query: {
+    status?: string;
+    supplierId?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const { status, supplierId, page = 1, limit = 20 } = query;
+    const where: any = {
+      companyId,
+      ...(status && { status }),
+      ...(supplierId && { supplierId }),
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.manufacturerRMA.findMany({
+        where,
+        include: {
+          supplier: { select: { id: true, name: true } },
+          _count: { select: { lines: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (Number(page) - 1) * Number(limit),
+        take: Number(limit),
+      }),
+      this.prisma.manufacturerRMA.count({ where }),
+    ]);
+    return { data, total, page: Number(page), limit: Number(limit) };
+  }
+
+  async createRMA(companyId: string, dto: CreateRMADto) {
+    // Validate all partReturns are APPROVED + in QUARANTINE
+    const returns = await this.prisma.partReturn.findMany({
+      where: {
+        id: { in: dto.partReturnIds },
+        companyId,
+        status: 'APPROVED',
+        inventoryStatus: 'QUARANTINE',
+      },
+      include: { part: { select: { id: true, costPrice: true } } },
+    });
+
+    if (returns.length !== dto.partReturnIds.length) {
+      throw new BadRequestException(
+        'All part returns must be APPROVED with QUARANTINE inventory status',
+      );
+    }
+
+    const rmaNumber = await this.generateSequence('RMA', 'manufacturerRMA');
+
+    return this.prisma.manufacturerRMA.create({
+      data: {
+        rmaNumber,
+        supplierId: dto.supplierId,
+        locationId: dto.locationId,
+        companyId,
+        notes: dto.notes,
+        lines: {
+          create: returns.map((r) => ({
+            partReturnId: r.id,
+            partId: r.partId,
+            qty: r.qty,
+            unitCost: r.part.costPrice,
+          })),
+        },
+      },
+      include: { lines: true },
+    });
+  }
+
+  async getRMA(companyId: string, id: string) {
+    const rma = await this.prisma.manufacturerRMA.findFirst({
+      where: { id, companyId },
+      include: {
+        supplier: { select: { id: true, name: true } },
+        lines: {
+          include: {
+            part: { select: { id: true, name: true, partNumber: true } },
+            partReturn: { select: { id: true, returnNumber: true, reason: true } },
+          },
+        },
+      },
+    });
+    if (!rma) throw new NotFoundException(`RMA ${id} not found`);
+    return rma;
+  }
+
+  async submitRMA(companyId: string, id: string) {
+    const rma = await this.prisma.manufacturerRMA.findFirst({
+      where: { id, companyId, status: 'DRAFT' },
+    });
+    if (!rma) throw new NotFoundException(`Draft RMA ${id} not found`);
+
+    return this.prisma.manufacturerRMA.update({
+      where: { id },
+      data: { status: 'SUBMITTED', submittedAt: new Date() },
+    });
+  }
+
+  async markRMASent(companyId: string, id: string) {
+    const rma = await this.prisma.manufacturerRMA.findFirst({
+      where: { id, companyId, status: 'SUBMITTED' },
+    });
+    if (!rma) throw new NotFoundException(`Submitted RMA ${id} not found`);
+
+    return this.prisma.manufacturerRMA.update({
+      where: { id },
+      data: { status: 'SENT_WITH_ORDER', sentAt: new Date() },
+    });
+  }
+
+  async resolveRMA(companyId: string, id: string, dto: ResolveRMADto) {
+    const rma = await this.prisma.manufacturerRMA.findFirst({
+      where: { id, companyId, status: 'SENT_WITH_ORDER' },
+    });
+    if (!rma) throw new NotFoundException(`Sent RMA ${id} not found`);
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.manufacturerRMA.update({
+        where: { id },
+        data: {
+          status: 'RESOLVED',
+          resolvedAt: new Date(),
+          resolutionType: dto.resolutionType,
+          resolutionAmount: dto.resolutionAmount,
+          creditNoteRef: dto.creditNoteRef,
+          notes: dto.notes ?? rma.notes,
+        },
+      });
+
+      if (dto.resolutionType === 'CREDIT_NOTE') {
+        const scnNumber = await this.generateSequence('SCN', 'supplierCreditNote');
+        await tx.supplierCreditNote.create({
+          data: {
+            creditNoteNumber: scnNumber,
+            supplierId: rma.supplierId,
+            rmaId: id,
+            totalAmount: dto.resolutionAmount,
+            expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+            locationId: rma.locationId,
+            companyId,
+          },
+        });
+      }
+
+      return updated;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Supplier Credit Notes
+  // ---------------------------------------------------------------------------
+
+  async listSupplierCredits(companyId: string, query: {
+    supplierId?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const { supplierId, page = 1, limit = 20 } = query;
+    const where: any = {
+      companyId,
+      ...(supplierId && { supplierId }),
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.supplierCreditNote.findMany({
+        where,
+        include: {
+          supplier: { select: { id: true, name: true } },
+          rma: { select: { id: true, rmaNumber: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (Number(page) - 1) * Number(limit),
+        take: Number(limit),
+      }),
+      this.prisma.supplierCreditNote.count({ where }),
+    ]);
+    return { data, total, page: Number(page), limit: Number(limit) };
+  }
+
+  async getSupplierCredit(companyId: string, id: string) {
+    const cn = await this.prisma.supplierCreditNote.findFirst({
+      where: { id, companyId },
+      include: {
+        supplier: { select: { id: true, name: true } },
+        rma: { select: { id: true, rmaNumber: true } },
+        usages: { orderBy: { usedAt: 'desc' } },
+      },
+    });
+    if (!cn) throw new NotFoundException(`SupplierCreditNote ${id} not found`);
+    return cn;
+  }
+
+  async applyCredit(companyId: string, id: string, dto: ApplyCreditDto) {
+    const cn = await this.prisma.supplierCreditNote.findFirst({
+      where: { id, companyId },
+    });
+    if (!cn) throw new NotFoundException(`SupplierCreditNote ${id} not found`);
+
+    const remaining = new Decimal(cn.totalAmount).minus(new Decimal(cn.usedAmount));
+    if (new Decimal(dto.amountUsed).greaterThan(remaining)) {
+      throw new BadRequestException(
+        `Amount ${dto.amountUsed} exceeds remaining balance ${remaining.toFixed(2)}`,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.creditNoteUsage.create({
+        data: {
+          creditNoteId: id,
+          amountUsed: dto.amountUsed,
+          purchaseOrderRef: dto.purchaseOrderRef,
+          notes: dto.notes,
+        },
+      });
+
+      return tx.supplierCreditNote.update({
+        where: { id },
+        data: { usedAmount: { increment: dto.amountUsed } },
+      });
+    });
   }
 }
