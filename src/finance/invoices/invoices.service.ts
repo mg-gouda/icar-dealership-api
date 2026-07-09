@@ -7,6 +7,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
 import { EtaService } from '../eta/eta.service';
+import { generateInvoiceNumber } from '../../common/helpers/invoice-numbering.helper';
 
 @Injectable()
 export class InvoicesService {
@@ -26,6 +27,8 @@ export class InvoicesService {
       dealId?: string;
       dateFrom?: string;
       dateTo?: string;
+      journalId?: string;
+      locationId?: string;
       page?: number;
       limit?: number;
     },
@@ -37,12 +40,15 @@ export class InvoicesService {
       dealId,
       dateFrom,
       dateTo,
+      journalId,
+      locationId,
       page = 1,
       limit = 20,
     } = query;
     return this.prisma.invoice.findMany({
       where: {
-        journal: { companyId },
+        journal: { companyId, ...(locationId && { locationId }) },
+        ...(journalId && { journalId }),
         ...(type && { type: type as any }),
         ...(status && { status: status as any }),
         ...(partnerId && { partnerId }),
@@ -90,15 +96,6 @@ export class InvoicesService {
     return inv;
   }
 
-  // ponytail: sequential invoice number per company
-  private async generateInvoiceNumber(companyId: string): Promise<string> {
-    const year = new Date().getFullYear();
-    const count = await this.prisma.invoice.count({
-      where: { journal: { companyId } },
-    });
-    return `INV-${year}-${String(count + 1).padStart(5, '0')}`;
-  }
-
   async create(
     data: {
       journalId: string;
@@ -130,7 +127,7 @@ export class InvoicesService {
       where: { id: data.journalId },
       select: { companyId: true },
     });
-    const number = data.number || await this.generateInvoiceNumber(journal.companyId);
+    const number = data.number || await generateInvoiceNumber(this.prisma, journal.companyId);
 
     const inv = await this.prisma.invoice.create({
       data: {
@@ -188,9 +185,9 @@ export class InvoicesService {
 
   async cancel(id: string, userId: string) {
     const inv = await this.prisma.invoice.findUniqueOrThrow({ where: { id } });
-    if (inv.status === 'POSTED')
+    if (['POSTED', 'PARTIAL', 'PAID'].includes(inv.status))
       throw new BadRequestException(
-        'Posted invoice must be reversed, not cancelled',
+        'Use reverse to cancel a posted/partially-paid/paid invoice',
       );
 
     const updated = await this.prisma.invoice.update({
@@ -251,14 +248,20 @@ export class InvoicesService {
       // recompute invoice totals
       const allLines = await tx.invoiceLine.findMany({
         where: { invoiceId },
+        include: { tax: true },
       });
       const newSubtotal = allLines.reduce((s, ln) => s + Number(ln.subtotal), 0);
+      const amountTax = allLines.reduce((s, ln) => {
+        if (!ln.tax) return s;
+        return s + (Number(ln.subtotal) * Number(ln.tax.amount)) / 100;
+      }, 0);
       await tx.invoice.update({
         where: { id: invoiceId },
         data: {
           amountUntaxed: newSubtotal,
-          amountTotal: newSubtotal,
-          amountResidual: newSubtotal,
+          amountTax,
+          amountTotal: newSubtotal + amountTax,
+          amountResidual: newSubtotal + amountTax,
         },
       });
 
@@ -279,9 +282,11 @@ export class InvoicesService {
   async apPaymentRun(
     invoiceIds: string[],
     paymentDate: Date,
-    journalId: string | undefined,
+    journalId: string,
     userId: string,
   ) {
+    if (!journalId)
+      throw new BadRequestException('journalId is required — provide the bank or cash journal to pay from');
     if (!invoiceIds?.length)
       throw new BadRequestException('invoiceIds required');
 
@@ -307,81 +312,8 @@ export class InvoicesService {
           throw new BadRequestException(`Invoice ${invoiceId} has no residual amount`);
         }
 
-        const payJournalId = journalId ?? inv.journalId;
-
-        await this.prisma.$transaction(async (tx) => {
-          // 1. Create payment record
-          const payment = await tx.payment.create({
-            data: {
-              type: 'VENDOR_PAYMENT',
-              partnerId: inv.partnerId,
-              journalId: payJournalId,
-              amount,
-              date: paymentDate,
-              method: 'BANK_TRANSFER',
-              status: 'POSTED',
-              memo: `AP Payment Run — Invoice ${invoiceId.slice(-8).toUpperCase()}`,
-            },
-          });
-
-          // 2. Allocate payment to invoice
-          await tx.paymentAllocation.create({
-            data: { paymentId: payment.id, invoiceId, amount },
-          });
-
-          // 3. Mark invoice PAID
-          await tx.invoice.update({
-            where: { id: invoiceId },
-            data: { amountResidual: 0, paymentStatus: 'PAID' },
-          });
-
-          // 4. GL entry: DR AP (2100) / CR Bank (journal default credit account)
-          const journal = await tx.journal.findUniqueOrThrow({
-            where: { id: payJournalId },
-          });
-          const bankAccountId = journal.defaultCreditAccountId;
-          if (!bankAccountId) {
-            throw new BadRequestException(
-              `Journal ${payJournalId} has no default credit account — configure it first`,
-            );
-          }
-          const accounts = await this.resolveAccounts(journal.companyId, ['2100']);
-
-          await tx.journalEntry.create({
-            data: {
-              journalId: payJournalId,
-              date: paymentDate,
-              ref: `APRUN-${invoiceId.slice(-8).toUpperCase()}`,
-              status: 'POSTED',
-              paymentId: payment.id,
-              lines: {
-                create: [
-                  {
-                    accountId: accounts['2100'],
-                    debit: amount,
-                    credit: 0,
-                    partnerId: inv.partnerId,
-                    label: 'AP Payment Run — Clear AP',
-                  },
-                  {
-                    accountId: bankAccountId,
-                    debit: 0,
-                    credit: amount,
-                    label: 'AP Payment Run — Bank',
-                  },
-                ],
-              },
-            },
-          });
-        });
-
-        await this.audit.log({
-          entity: 'Invoice',
-          entityId: invoiceId,
-          action: 'AP_PAYMENT_RUN',
-          userId,
-          newValue: { amount },
-        });
+        // ponytail: delegate to PostingService → fiscal lock + balance check + audit
+        await this.posting.postApPaymentRun(invoiceId, journalId, paymentDate, userId);
 
         totalAmount += amount;
         results.push({ invoiceId, ok: true });
@@ -395,26 +327,6 @@ export class InvoicesService {
       totalAmount,
       results,
     };
-  }
-
-  // ponytail: resolve account codes → IDs
-  private async resolveAccounts(
-    companyId: string,
-    codes: string[],
-  ): Promise<Record<string, string>> {
-    const rows = await this.prisma.account.findMany({
-      where: { companyId, code: { in: codes } },
-      select: { id: true, code: true },
-    });
-    const map: Record<string, string> = {};
-    for (const r of rows) map[r.code] = r.id;
-    const missing = codes.filter((c) => !map[c]);
-    if (missing.length) {
-      throw new BadRequestException(
-        `GL accounts not found: ${missing.join(', ')}. Run prisma:seed first.`,
-      );
-    }
-    return map;
   }
 
   async threeWayMatch(invoiceId: string) {

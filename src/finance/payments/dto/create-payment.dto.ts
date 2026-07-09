@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsNumber, IsDateString, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsNumber, IsPositive, IsDateString, IsArray } from 'class-validator';
 import { PaymentType, PaymentMethod } from '@prisma/client';
 
 export class CreatePaymentDto {
@@ -12,6 +12,7 @@ export class CreatePaymentDto {
   journalId: string;
 
   @IsNumber()
+  @IsPositive()
   amount: number;
 
   @IsOptional()
@@ -44,5 +45,6 @@ export class AllocatePaymentDto {
   invoiceId: string;
 
   @IsNumber()
+  @IsPositive()
   amount: number;
 }

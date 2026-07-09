@@ -13,8 +13,8 @@ export interface GeneratedPeriod {
   name: string;
   code: string;
   number: number;
-  dateFrom: Date;
-  dateTo: Date;
+  startDate: Date;
+  endDate: Date;
 }
 
 // ── Core Functions ──
@@ -53,8 +53,8 @@ export function generatePeriods(
       name: monthName,
       code: monthCode,
       number,
-      dateFrom: clampedStart,
-      dateTo: clampedEnd,
+      startDate: clampedStart,
+      endDate: clampedEnd,
     });
 
     number++;
@@ -65,11 +65,11 @@ export function generatePeriods(
   if (includePeriod13 && periods.length > 0) {
     const lastPeriod = periods[periods.length - 1];
     periods.push({
-      name: `Adjustments ${lastPeriod.dateTo.getFullYear()}`,
-      code: `${lastPeriod.dateTo.getFullYear()}-13`,
+      name: `Adjustments ${lastPeriod.endDate.getFullYear()}`,
+      code: `${lastPeriod.endDate.getFullYear()}-13`,
       number: 13,
-      dateFrom: lastPeriod.dateTo,
-      dateTo: lastPeriod.dateTo,
+      startDate: lastPeriod.endDate,
+      endDate: lastPeriod.endDate,
     });
   }
 

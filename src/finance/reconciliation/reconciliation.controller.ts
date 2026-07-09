@@ -33,13 +33,13 @@ export class ReconciliationController {
     return this.svc.suggestMatches(bslId, req.user.companyId);
   }
 
-  @Get('unreconciled-lines')
+  @Get('unreconciled')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   getUnreconciled(@Request() req: any, @Query() q: any) {
     return this.svc.getUnreconciledLines(req.user.companyId, q);
   }
 
-  @Post()
+  @Post('reconcile')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   reconcile(
     @Body()
@@ -117,5 +117,16 @@ export class ReconciliationController {
       body.endingBalance,
       req.user.id,
     );
+  }
+
+  @Post('auto-reconcile')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  autoReconcile(
+    @Body() body: { bankStatementId: string },
+    @Request() req: any,
+  ) {
+    if (!body.bankStatementId)
+      throw new BadRequestException('bankStatementId required');
+    return this.svc.autoReconcile(body.bankStatementId, req.user.companyId);
   }
 }

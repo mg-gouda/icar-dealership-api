@@ -1,52 +1,70 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { COA } from '../coa.constants';
 
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
-  async trialBalance(companyId: string, dateFrom: Date, dateTo: Date) {
-    const rows = await this.prisma.journalEntryLine.groupBy({
-      by: ['accountId'],
-      where: {
-        journalEntry: {
-          status: 'POSTED',
-          date: { gte: dateFrom, lte: dateTo },
-          journal: { companyId },
-        },
-      },
-      _sum: { debit: true, credit: true },
-    });
+  async trialBalance(companyId: string, dateFrom: Date, dateTo: Date, locationId?: string) {
+    const journalWhere = { companyId, ...(locationId && { locationId }) };
+    const entryWhere = { status: 'POSTED' as const, journal: journalWhere };
 
-    const accountIds = rows.map((r) => r.accountId);
+    const [openingRows, periodRows] = await Promise.all([
+      this.prisma.journalEntryLine.groupBy({
+        by: ['accountId'],
+        where: { journalEntry: { ...entryWhere, date: { lt: dateFrom } } },
+        _sum: { debit: true, credit: true },
+      }),
+      this.prisma.journalEntryLine.groupBy({
+        by: ['accountId'],
+        where: { journalEntry: { ...entryWhere, date: { gte: dateFrom, lte: dateTo } } },
+        _sum: { debit: true, credit: true },
+      }),
+    ]);
+
+    const allAccountIds = [...new Set([...openingRows.map((r) => r.accountId), ...periodRows.map((r) => r.accountId)])];
     const accounts = await this.prisma.account.findMany({
-      where: { id: { in: accountIds } },
+      where: { id: { in: allAccountIds } },
       select: { id: true, code: true, name: true, type: true },
     });
     const accMap = new Map(accounts.map((a) => [a.id, a]));
 
-    return rows
-      .map((r) => {
-        const acc = accMap.get(r.accountId);
-        const debit = new Decimal(r._sum?.debit?.toString() ?? '0');
-        const credit = new Decimal(r._sum?.credit?.toString() ?? '0');
+    const toDecimal = (val: any) => new Decimal(val?.toString() ?? '0');
+    const openMap = new Map(openingRows.map((r) => [r.accountId, r._sum]));
+    const periodMap = new Map(periodRows.map((r) => [r.accountId, r._sum]));
+
+    return allAccountIds
+      .map((accountId) => {
+        const acc = accMap.get(accountId);
+        const op = openMap.get(accountId);
+        const pr = periodMap.get(accountId);
+        const openDebit = toDecimal(op?.debit);
+        const openCredit = toDecimal(op?.credit);
+        const openingBalance = openDebit.minus(openCredit);
+        const periodDebit = toDecimal(pr?.debit);
+        const periodCredit = toDecimal(pr?.credit);
+        const closingBalance = openingBalance.plus(periodDebit).minus(periodCredit);
         return {
-          accountId: r.accountId,
+          accountId,
           code: acc?.code ?? '',
           name: acc?.name ?? '',
           type: acc?.type ?? '',
-          debit,
-          credit,
-          balance: debit.minus(credit),
+          openingBalance,
+          periodDebit,
+          periodCredit,
+          closingBalance,
         };
       })
       .sort((a, b) => a.code.localeCompare(b.code));
   }
 
-  async incomeStatement(companyId: string, dateFrom: Date, dateTo: Date) {
+  async incomeStatement(companyId: string, dateFrom: Date, dateTo: Date, locationId?: string) {
     const incomeTypes = ['INCOME'];
     const expenseTypes = ['EXPENSE', 'COST_OF_REVENUE'];
+    const journalWhere = { companyId, ...(locationId && { locationId }) };
 
     const rows = await this.prisma.journalEntryLine.groupBy({
       by: ['accountId'],
@@ -58,7 +76,7 @@ export class ReportsService {
         journalEntry: {
           status: 'POSTED',
           date: { gte: dateFrom, lte: dateTo },
-          journal: { companyId },
+          journal: journalWhere,
         },
       },
       _sum: { debit: true, credit: true },
@@ -109,11 +127,13 @@ export class ReportsService {
     };
   }
 
-  async revenueByMonth(companyId: string, months = 6) {
+  async revenueByMonth(companyId: string, months = 6, locationId?: string) {
     // ponytail: single raw query replaces 2*N loop
     const now = new Date();
     const startDate = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
     const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    // ponytail: conditional fragment — no SQL duplication
+    const locFilter = locationId ? Prisma.sql`AND j."locationId" = ${locationId}` : Prisma.sql``;
 
     const rows = await this.prisma.$queryRaw<
       Array<{ month: string; revenue: string; expenses: string }>
@@ -131,6 +151,7 @@ export class ReportsService {
         AND je.date >= ${startDate}
         AND je.date <= ${endDate}
         AND a.type IN ('INCOME', 'EXPENSE', 'COST_OF_REVENUE')
+        ${locFilter}
       GROUP BY TO_CHAR(je.date, 'YYYY-MM')
       ORDER BY month
     `;
@@ -155,10 +176,12 @@ export class ReportsService {
     return { months: result };
   }
 
-  async branchProfit(companyId: string) {
+  async branchProfit(companyId: string, locationId?: string) {
     // ponytail: single raw query replaces 2*N loop
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    // ponytail: conditional fragment — no SQL duplication
+    const locFilter = locationId ? Prisma.sql`AND j."locationId" = ${locationId}` : Prisma.sql``;
 
     const rows = await this.prisma.$queryRaw<
       Array<{ locationId: string; revenue: string; expenses: string }>
@@ -176,6 +199,7 @@ export class ReportsService {
         AND je.date >= ${from}
         AND j."locationId" IS NOT NULL
         AND a.type IN ('INCOME', 'EXPENSE', 'COST_OF_REVENUE')
+        ${locFilter}
       GROUP BY j."locationId"
     `;
 
@@ -196,10 +220,13 @@ export class ReportsService {
     return { branches: result.sort((a, b) => b.gross - a.gross) };
   }
 
-  async balanceSheet(companyId: string, asOf: Date) {
+  async balanceSheet(companyId: string, asOf: Date, fiscalYearStart?: Date, locationId?: string) {
     const assetTypes = ['ASSET'];
     const liabilityTypes = ['LIABILITY'];
     const equityTypes = ['EQUITY'];
+    // Default fiscal year start: Jan 1 of asOf's year
+    const fyStart = fiscalYearStart ?? new Date(asOf.getFullYear(), 0, 1);
+    const journalWhere = { companyId, ...(locationId && { locationId }) };
 
     const rows = await this.prisma.journalEntryLine.groupBy({
       by: ['accountId'],
@@ -213,7 +240,7 @@ export class ReportsService {
         journalEntry: {
           status: 'POSTED',
           date: { lte: asOf },
-          journal: { companyId },
+          journal: journalWhere,
         },
       },
       _sum: { debit: true, credit: true },
@@ -259,6 +286,20 @@ export class ReportsService {
       }
     }
 
+    // Inject current-period net income into equity so totalAssets == totalLiabilitiesAndEquity
+    const is = await this.incomeStatement(companyId, fyStart, asOf, locationId);
+    if (!is.netProfit.isZero()) {
+      equity.push({
+        accountId: null,
+        code: '',
+        name: 'Current Period Net Income',
+        type: 'EQUITY',
+        balance: is.netProfit,
+        synthetic: true,
+      });
+      totalEquity = totalEquity.plus(is.netProfit);
+    }
+
     return {
       assets: assets.sort((a, b) => a.code.localeCompare(b.code)),
       liabilities: liabilities.sort((a, b) => a.code.localeCompare(b.code)),
@@ -267,24 +308,26 @@ export class ReportsService {
       totalLiabilities,
       totalEquity,
       totalLiabilitiesAndEquity: totalLiabilities.plus(totalEquity),
+      currentPeriodNetIncome: is.netProfit,
     };
   }
 
-  async agedReceivables(companyId: string, asOf: Date) {
-    return this.agedReport(companyId, asOf, 'CUSTOMER_INVOICE');
+  async agedReceivables(companyId: string, asOf: Date, locationId?: string) {
+    return this.agedReport(companyId, asOf, 'CUSTOMER_INVOICE', locationId);
   }
 
-  async agedPayables(companyId: string, asOf: Date) {
-    return this.agedReport(companyId, asOf, 'VENDOR_BILL');
+  async agedPayables(companyId: string, asOf: Date, locationId?: string) {
+    return this.agedReport(companyId, asOf, 'VENDOR_BILL', locationId);
   }
 
-  private async agedReport(companyId: string, asOf: Date, invoiceType: string) {
+  private async agedReport(companyId: string, asOf: Date, invoiceType: string, locationId?: string) {
+    const journalWhere = { companyId, ...(locationId && { locationId }) };
     const invoices = await this.prisma.invoice.findMany({
       where: {
         type: invoiceType as any,
         status: 'POSTED',
         paymentStatus: { not: 'PAID' },
-        journal: { companyId },
+        journal: journalWhere,
         date: { lte: asOf },
       },
       include: {
@@ -292,7 +335,6 @@ export class ReportsService {
       },
     });
 
-    const buckets = [0, 30, 60, 90, 120];
     const partnerMap = new Map<
       string,
       {
@@ -302,8 +344,7 @@ export class ReportsService {
         b30: Decimal;
         b60: Decimal;
         b90: Decimal;
-        b120: Decimal;
-        older: Decimal;
+        b90plus: Decimal;
         total: Decimal;
       }
     >();
@@ -323,8 +364,7 @@ export class ReportsService {
           b30: new Decimal(0),
           b60: new Decimal(0),
           b90: new Decimal(0),
-          b120: new Decimal(0),
-          older: new Decimal(0),
+          b90plus: new Decimal(0),
           total: new Decimal(0),
         });
       }
@@ -336,8 +376,7 @@ export class ReportsService {
       else if (daysOverdue <= 30) entry.b30 = entry.b30.plus(residual);
       else if (daysOverdue <= 60) entry.b60 = entry.b60.plus(residual);
       else if (daysOverdue <= 90) entry.b90 = entry.b90.plus(residual);
-      else if (daysOverdue <= 120) entry.b120 = entry.b120.plus(residual);
-      else entry.older = entry.older.plus(residual);
+      else entry.b90plus = entry.b90plus.plus(residual);
     }
 
     return Array.from(partnerMap.values()).sort((a, b) =>
@@ -345,19 +384,20 @@ export class ReportsService {
     );
   }
 
-  async cashFlow(companyId: string, dateFrom: Date, dateTo: Date) {
+  async cashFlow(companyId: string, dateFrom: Date, dateTo: Date, locationId?: string) {
     // ponytail: simplified indirect method
-    const is = await this.incomeStatement(companyId, dateFrom, dateTo);
+    const is = await this.incomeStatement(companyId, dateFrom, dateTo, locationId);
     const netProfit = is.netProfit;
+    const journalWhere = { companyId, ...(locationId && { locationId }) };
 
     // Depreciation: sum JEL on accounts with code '6500' (depreciation expense) in period
     const depRows = await this.prisma.journalEntryLine.aggregate({
       where: {
-        account: { companyId, code: '6500' },
+        account: { companyId, code: COA.DEPRECIATION_EXPENSE },
         journalEntry: {
           status: 'POSTED',
           date: { gte: dateFrom, lte: dateTo },
-          journal: { companyId },
+          journal: journalWhere,
         },
       },
       _sum: { debit: true, credit: true },
@@ -369,11 +409,11 @@ export class ReportsService {
     // AR change: sum of AR account lines (code '1300') -- increase in AR = cash outflow
     const arRows = await this.prisma.journalEntryLine.aggregate({
       where: {
-        account: { companyId, code: '1300' },
+        account: { companyId, code: COA.ACCOUNTS_RECEIVABLE },
         journalEntry: {
           status: 'POSTED',
           date: { gte: dateFrom, lte: dateTo },
-          journal: { companyId },
+          journal: journalWhere,
         },
       },
       _sum: { debit: true, credit: true },
@@ -385,11 +425,11 @@ export class ReportsService {
     // AP change: sum of AP account lines (code '2100') -- increase in AP = cash inflow
     const apRows = await this.prisma.journalEntryLine.aggregate({
       where: {
-        account: { companyId, code: '2100' },
+        account: { companyId, code: COA.ACCOUNTS_PAYABLE },
         journalEntry: {
           status: 'POSTED',
           date: { gte: dateFrom, lte: dateTo },
-          journal: { companyId },
+          journal: journalWhere,
         },
       },
       _sum: { debit: true, credit: true },
@@ -413,7 +453,7 @@ export class ReportsService {
     };
   }
 
-  async taxReport(companyId: string, dateFrom: Date, dateTo: Date) {
+  async taxReport(companyId: string, dateFrom: Date, dateTo: Date, locationId?: string) {
     // ponytail: single query replaces 3*N loop
     const taxGroups = await this.prisma.taxGroup.findMany({
       include: {
@@ -434,6 +474,7 @@ export class ReportsService {
     if (!allAccountIds.length) return [];
 
     // Single raw query: sum debits/credits per accountId in the period
+    const locFilter = locationId ? Prisma.sql`AND j."locationId" = ${locationId}` : Prisma.sql``;
     const rows = await this.prisma.$queryRaw<
       Array<{ accountId: string; totalDebit: string; totalCredit: string }>
     >`
@@ -448,6 +489,7 @@ export class ReportsService {
         AND je.status = 'POSTED'
         AND je.date >= ${dateFrom}
         AND je.date <= ${dateTo}
+        ${locFilter}
         AND jel."accountId" IN (SELECT unnest(${allAccountIds}::text[]))
       GROUP BY jel."accountId"
     `;
@@ -499,8 +541,9 @@ export class ReportsService {
     return results;
   }
 
-  async vatReturnEta(companyId: string, dateFrom: Date, dateTo: Date) {
+  async vatReturnEta(companyId: string, dateFrom: Date, dateTo: Date, locationId?: string) {
     // ETA VAT return — boxes 1-13 per Egyptian Tax Authority format
+    const journalWhere = { companyId, ...(locationId && { locationId }) };
     const incomeAccounts = await this.prisma.account.findMany({
       where: { companyId, type: 'INCOME' },
       select: { id: true },
@@ -515,7 +558,7 @@ export class ReportsService {
       const r = await this.prisma.journalEntryLine.aggregate({
         where: {
           accountId: { in: accountIds },
-          journalEntry: { status: 'POSTED', date: { gte: dateFrom, lte: dateTo }, journal: { companyId } },
+          journalEntry: { status: 'POSTED', date: { gte: dateFrom, lte: dateTo }, journal: journalWhere },
         },
         _sum: { credit: true, debit: true },
       });
@@ -532,11 +575,11 @@ export class ReportsService {
 
     // F-17: Query actual posted VAT amounts instead of multiplying totals
     const outputVatAccount = await this.prisma.account.findFirst({
-      where: { companyId, code: '2200' },
+      where: { companyId, code: COA.OUTPUT_VAT },
       select: { id: true },
     });
     const inputVatAccount = await this.prisma.account.findFirst({
-      where: { companyId, code: '1350' },
+      where: { companyId, code: COA.INPUT_VAT },
       select: { id: true },
     });
     const vatOnSales = outputVatAccount
@@ -588,12 +631,14 @@ export class ReportsService {
     dateTo?: Date,
     page = 1,
     limit = 50,
+    locationId?: string,
   ) {
+    const journalWhere = { companyId, ...(locationId && { locationId }) };
     const where: any = {
       accountId,
       journalEntry: {
         status: 'POSTED',
-        journal: { companyId },
+        journal: journalWhere,
         ...(dateFrom || dateTo
           ? {
               date: {
@@ -604,7 +649,27 @@ export class ReportsService {
           : {}),
       },
     };
-    const [items, total] = await Promise.all([
+    // Opening balance: sum of (debit - credit) for all posted lines on this
+    // account before the dateFrom boundary. Zero when no dateFrom is supplied.
+    let openingBalance = new Decimal(0);
+    if (dateFrom) {
+      const openingAgg = await this.prisma.journalEntryLine.aggregate({
+        where: {
+          accountId,
+          journalEntry: {
+            status: 'POSTED',
+            journal: journalWhere,
+            date: { lt: dateFrom },
+          },
+        },
+        _sum: { debit: true, credit: true },
+      });
+      const obDebit = new Decimal(openingAgg._sum?.debit?.toString() ?? '0');
+      const obCredit = new Decimal(openingAgg._sum?.credit?.toString() ?? '0');
+      openingBalance = obDebit.minus(obCredit);
+    }
+
+    const [rawItems, total] = await Promise.all([
       this.prisma.journalEntryLine.findMany({
         where,
         include: {
@@ -613,12 +678,22 @@ export class ReportsService {
             select: { id: true, ref: true, date: true, status: true },
           },
         },
-        orderBy: { journalEntry: { date: 'desc' } },
+        orderBy: { journalEntry: { date: 'asc' } },
         skip: (page - 1) * limit,
         take: limit,
       }),
       this.prisma.journalEntryLine.count({ where }),
     ]);
-    return { items, total, page, limit };
+
+    // Accumulate running balance per line in the page
+    let running = openingBalance;
+    const items = rawItems.map((item) => {
+      running = running
+        .plus(new Decimal(item.debit.toString()))
+        .minus(new Decimal(item.credit.toString()));
+      return { ...item, runningBalance: running.toFixed(2) };
+    });
+
+    return { items, total, page, limit, openingBalance: openingBalance.toFixed(2) };
   }
 }

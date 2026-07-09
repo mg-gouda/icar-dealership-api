@@ -9,7 +9,6 @@ export class ApPaymentRunDto {
   @IsDateString()
   paymentDate?: string;
 
-  @IsOptional()
-  @IsString()
-  journalId?: string;
+  @IsString({ message: 'journalId is required — provide the bank or cash journal to pay from' })
+  journalId: string;
 }

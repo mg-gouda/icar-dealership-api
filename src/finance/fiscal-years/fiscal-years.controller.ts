@@ -64,6 +64,12 @@ export class FiscalYearsController {
     return this.svc.update(id, req.user.companyId, body, req.user.id);
   }
 
+  @Patch(':id/close')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  close(@Param('id') id: string, @Request() req: any) {
+    return this.svc.lock(id, req.user.companyId, req.user.id);
+  }
+
   @Patch(':id/lock')
   @Roles('ADMIN', 'SUPER_ADMIN')
   lock(@Param('id') id: string, @Request() req: any) {

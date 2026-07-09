@@ -101,6 +101,18 @@ export class FiscalYearsService {
       body.includePeriod13 ?? false,
     );
 
+    await this.prisma.fiscalPeriod.createMany({
+      data: periods.map((p) => ({
+        companyId: companyId,
+        fiscalYearId: id,
+        name: p.name,
+        startDate: p.startDate,
+        endDate: p.endDate,
+        isLocked: false,
+      })),
+      skipDuplicates: true,
+    });
+
     await this.audit.log({
       userId,
       action: 'GENERATE_PERIODS',
@@ -109,8 +121,7 @@ export class FiscalYearsService {
       changes: { periodCount: periods.length },
     });
 
-    // ponytail: no FiscalPeriod model in schema yet — return computed periods
-    return { fiscalYearId: id, periods };
+    return { fiscalYearId: id, periodCount: periods.length };
   }
 
   async update(

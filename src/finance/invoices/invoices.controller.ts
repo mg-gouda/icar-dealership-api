@@ -55,7 +55,7 @@ export class InvoicesController {
     return this.svc.cancel(id, req.user.id);
   }
 
-  @Patch(':id/reverse')
+  @Post(':id/reverse')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   reverse(@Param('id') id: string, @Request() req: any) {
     return this.svc.reverse(id, req.user.id);

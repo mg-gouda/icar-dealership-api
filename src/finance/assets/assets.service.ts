@@ -99,8 +99,31 @@ export class AssetsService {
     return this.getById(asset.id);
   }
 
-  async update(id: string, data: Prisma.AssetUncheckedUpdateInput, userId: string) {
-    return this.prisma.asset.update({ where: { id }, data });
+  async update(id: string, data: Prisma.AssetUncheckedUpdateInput, userId: string, companyId: string) {
+    // ponytail: verify cross-company ownership before mutating — mirrors getById pattern
+    const existing = await this.prisma.asset.findFirst({
+      where: { id, assetAccount: { companyId } },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Asset not found');
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const a = await tx.asset.update({ where: { id }, data });
+      // Regenerate unposted depreciation lines — posted lines are left untouched
+      await tx.assetDepreciationLine.deleteMany({ where: { assetId: id, posted: false } });
+      const lines = this.computeDepreciationSchedule(a);
+      await tx.assetDepreciationLine.createMany({
+        data: lines.map((l, idx) => ({
+          assetId: a.id,
+          sequence: idx + 1,
+          date: l.date,
+          amount: l.amount,
+          accumulatedAmount: l.accumulated,
+          remainingValue: l.remaining,
+        })),
+      });
+      return a;
+    });
+    return this.getById(updated.id);
   }
 
   async createFromInvoiceLine(
@@ -113,13 +136,17 @@ export class AssetsService {
       include: { invoice: { select: { id: true, partnerId: true } } },
     });
     // ponytail: pre-fill asset from bill line values; caller can override any field
+    if (!overrides.depreciationExpenseAccountId) {
+      throw new BadRequestException('depreciationExpenseAccountId is required');
+    }
+    if (!overrides.accumulatedDepAccountId) {
+      throw new BadRequestException('accumulatedDepAccountId is required');
+    }
     return this.create({
       name: String(overrides.name ?? line.description ?? 'Asset'),
       assetAccountId: String(overrides.assetAccountId ?? line.accountId),
-      depreciationExpenseAccountId: String(
-        overrides.depreciationExpenseAccountId ?? '',
-      ),
-      accumulatedDepAccountId: String(overrides.accumulatedDepAccountId ?? ''),
+      depreciationExpenseAccountId: String(overrides.depreciationExpenseAccountId),
+      accumulatedDepAccountId: String(overrides.accumulatedDepAccountId),
       originalValue: Number(overrides.originalValue ?? line.subtotal),
       salvageValue:
         overrides.salvageValue != null ? Number(overrides.salvageValue) : 0,
@@ -157,6 +184,7 @@ export class AssetsService {
       const je = await tx.journalEntry.create({
         data: {
           journalId,
+          assetDepreciationLineId: lineId,
           date: line.date,
           ref: `DEP/${line.assetId}/${line.sequence} – ${line.asset.name}`,
           status: 'POSTED',
@@ -247,6 +275,7 @@ export class AssetsService {
     month: string,
     journalId: string | undefined,
     userId: string,
+    companyId: string,
   ) {
     // Find the next unposted line whose date falls within `month` (YYYY-MM)
     const [year, mon] = month.split('-').map(Number);
@@ -266,10 +295,25 @@ export class AssetsService {
           where: { id: journalId },
         })
       : await this.prisma.journal.findFirstOrThrow({
-          where: { type: 'GENERAL' },
+          // ponytail: companyId scopes fallback — prevents cross-company journal pick
+          where: { type: 'GENERAL', companyId },
         });
 
     return this.postDepreciationLine(assetId, line.id, journal.id);
+  }
+
+  async getSchedule(id: string, companyId?: string) {
+    // ponytail: dedicated schedule fetch — includes journalEntry per line
+    const where: Prisma.AssetWhereInput = companyId
+      ? { id, assetAccount: { companyId } }
+      : { id };
+    const asset = await this.prisma.asset.findFirst({ where });
+    if (!asset) throw new NotFoundException('Asset not found');
+    return this.prisma.assetDepreciationLine.findMany({
+      where: { assetId: id },
+      include: { journalEntry: { select: { id: true, status: true, ref: true, date: true } } },
+      orderBy: { sequence: 'asc' },
+    });
   }
 
   async dispose(
@@ -280,6 +324,11 @@ export class AssetsService {
     const asset = await this.getById(assetId);
     if (asset.state === 'CLOSED')
       throw new BadRequestException('Asset already closed/disposed');
+
+    // ponytail: enforce atomic disposal — silent no-GL retirement violates business rule #4
+    if (!body.journalId)
+      throw new BadRequestException('journalId required for disposal GL posting');
+
     const proceeds = new Decimal(body.proceedsAmount ?? 0);
     const postedLines = asset.depreciationLines.filter((l) => l.posted);
     const accumulated = postedLines.length
@@ -288,62 +337,60 @@ export class AssetsService {
     const bookValue = new Decimal(asset.originalValue.toString()).minus(accumulated);
     const gainLoss = proceeds.minus(bookValue);
     const disposeDate = new Date(body.date);
+    const journalId = body.journalId;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.asset.update({ where: { id: assetId }, data: { state: 'CLOSED' } });
 
-      // Post disposal GL entry if a journal is provided
-      if (body.journalId) {
-        // B-8: Fiscal period check before posting disposal
-        const journal = await tx.journal.findUniqueOrThrow({ where: { id: body.journalId } });
-        const fiscal = await tx.fiscalYear.findFirst({
-          where: { companyId: journal.companyId, startDate: { lte: disposeDate }, endDate: { gte: disposeDate } },
-        });
-        if (!fiscal) throw new BadRequestException('No open fiscal year for the posting date.');
-        if (fiscal.lockDate && disposeDate <= fiscal.lockDate)
-          throw new BadRequestException('Fiscal period is locked.');
+      // B-8: Fiscal period check before posting disposal
+      const journal = await tx.journal.findUniqueOrThrow({ where: { id: journalId } });
+      const fiscal = await tx.fiscalYear.findFirst({
+        where: { companyId: journal.companyId, startDate: { lte: disposeDate }, endDate: { gte: disposeDate } },
+      });
+      if (!fiscal) throw new BadRequestException('No open fiscal year for the posting date.');
+      if (fiscal.lockDate && disposeDate <= fiscal.lockDate)
+        throw new BadRequestException('Fiscal period is locked.');
 
-        interface GlLine { accountId: string; label: string; debit: number; credit: number }
-        const glLines: GlLine[] = [
-          // Remove asset at cost: CR Fixed Asset
-          { accountId: asset.assetAccountId, label: `Disposal – ${asset.name}`, debit: 0, credit: Number(asset.originalValue) },
-          // Remove accumulated depreciation: DR Acc Dep
-          { accountId: asset.accumulatedDepAccountId, label: `Acc Dep – ${asset.name}`, debit: accumulated.toNumber(), credit: 0 },
-        ];
-        if (proceeds.gt(0)) {
-          // F-7: Throw if proceeds account not found
-          const bankAcc = await tx.account.findFirst({ where: { code: '1210', companyId: journal.companyId } });
-          if (!bankAcc) throw new BadRequestException('GL account 1210 (disposal proceeds) not found in COA. Run seed first.');
-          glLines.push({ accountId: bankAcc.id, label: 'Disposal proceeds', debit: proceeds.toNumber(), credit: 0 });
-        }
-        // Gain: CR Other Income (if gain > 0) / Loss: DR Expense (if loss > 0)
-        if (!gainLoss.isZero()) {
-          const glAccCode = gainLoss.gt(0) ? '4900' : '6700';
-          const glAcc = await tx.account.findFirst({
-            where: { code: glAccCode, companyId: journal.companyId },
-          });
-          // F-7: Throw if gain/loss account not found
-          if (!glAcc) throw new BadRequestException(`GL account ${glAccCode} (${gainLoss.gt(0) ? 'gain' : 'loss'} on disposal) not found in COA. Run seed first.`);
-          glLines.push(gainLoss.gt(0)
-            ? { accountId: glAcc.id, label: 'Gain on disposal', debit: 0, credit: gainLoss.toNumber() }
-            : { accountId: glAcc.id, label: 'Loss on disposal', debit: gainLoss.negated().toNumber(), credit: 0 });
-        }
-        // F-7: Assert balanced before posting
-        const totalDebit = glLines.reduce((s, l) => s + l.debit, 0);
-        const totalCredit = glLines.reduce((s, l) => s + l.credit, 0);
-        if (Math.abs(totalDebit - totalCredit) > 0.01) {
-          throw new BadRequestException(`Disposal entry unbalanced: DR ${totalDebit} != CR ${totalCredit}`);
-        }
-        await tx.journalEntry.create({
-          data: {
-            journalId: body.journalId,
-            date: disposeDate,
-            ref: `DISP/${asset.name}`,
-            status: 'POSTED',
-            lines: { create: glLines },
-          },
-        });
+      interface GlLine { accountId: string; label: string; debit: number; credit: number }
+      const glLines: GlLine[] = [
+        // Remove asset at cost: CR Fixed Asset
+        { accountId: asset.assetAccountId, label: `Disposal – ${asset.name}`, debit: 0, credit: Number(asset.originalValue) },
+        // Remove accumulated depreciation: DR Acc Dep
+        { accountId: asset.accumulatedDepAccountId, label: `Acc Dep – ${asset.name}`, debit: accumulated.toNumber(), credit: 0 },
+      ];
+      if (proceeds.gt(0)) {
+        // F-7: Throw if proceeds account not found
+        const bankAcc = await tx.account.findFirst({ where: { code: '1210', companyId: journal.companyId } });
+        if (!bankAcc) throw new BadRequestException('GL account 1210 (disposal proceeds) not found in COA. Run seed first.');
+        glLines.push({ accountId: bankAcc.id, label: 'Disposal proceeds', debit: proceeds.toNumber(), credit: 0 });
       }
+      // Gain: CR Other Income (if gain > 0) / Loss: DR Expense (if loss > 0)
+      if (!gainLoss.isZero()) {
+        const glAccCode = gainLoss.gt(0) ? '4900' : '6700';
+        const glAcc = await tx.account.findFirst({
+          where: { code: glAccCode, companyId: journal.companyId },
+        });
+        // F-7: Throw if gain/loss account not found
+        if (!glAcc) throw new BadRequestException(`GL account ${glAccCode} (${gainLoss.gt(0) ? 'gain' : 'loss'} on disposal) not found in COA. Run seed first.`);
+        glLines.push(gainLoss.gt(0)
+          ? { accountId: glAcc.id, label: 'Gain on disposal', debit: 0, credit: gainLoss.toNumber() }
+          : { accountId: glAcc.id, label: 'Loss on disposal', debit: gainLoss.negated().toNumber(), credit: 0 });
+      }
+      // F-7: Assert balanced before posting
+      const totalDebit = glLines.reduce((s, l) => s + l.debit, 0);
+      const totalCredit = glLines.reduce((s, l) => s + l.credit, 0);
+      if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        throw new BadRequestException(`Disposal entry unbalanced: DR ${totalDebit} != CR ${totalCredit}`);
+      }
+      await tx.journalEntry.create({
+        data: {
+          journalId,
+          date: disposeDate,
+          ref: `DISP/${asset.name}`,
+          status: 'POSTED',
+          lines: { create: glLines },
+        },
+      });
     });
 
     return { asset: await this.getById(assetId), bookValue, proceeds, gainLoss };

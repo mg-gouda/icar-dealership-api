@@ -61,7 +61,7 @@ export class PaymentsController {
     return this.svc.postPayment(id, req.user.id);
   }
 
-  @Patch(':id/cancel')
+  @Post(':id/cancel')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   cancel(@Param('id') id: string, @Request() req: any) {
     return this.svc.cancel(id, req.user.id);

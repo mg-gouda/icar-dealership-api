@@ -4,6 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { FiscalPeriodService } from '../fiscal-periods/fiscal-period.service';
 import Decimal from 'decimal.js';
+import { generateInvoiceNumber } from '../../common/helpers/invoice-numbering.helper';
 
 /**
  * All GL postings go through this service -- never create JournalEntry rows
@@ -111,6 +112,9 @@ export class PostingService {
     // M-14: mutable ref for trade-in vehicle ID (updated inside tx if auto-created)
     let resolvedTradeInVehicleId = deal.tradeInVehicleId;
 
+    // Generate invoice number before entering transaction (same pattern as InvoicesService.create)
+    const invoiceNumber = await generateInvoiceNumber(this.prisma, companyId);
+
     await this.prisma.$transaction(async (tx) => {
       // 1. Sale GL entry lines (SALE journal)
       // DR: AR 1300 / CR: Vehicle Sales Income 4100 + VAT Payable 2200 + Admin Fee 4210 + Insurance 4220
@@ -164,18 +168,7 @@ export class PostingService {
           : []),
       ];
 
-      this.assertBalanced(saleLines);
-      await tx.journalEntry.create({
-        data: {
-          journalId: saleJournal.id,
-          date: now,
-          ref: `SALE-${dealId.slice(-8).toUpperCase()}`,
-          status: 'POSTED',
-          lines: {
-            create: saleLines,
-          },
-        },
-      });
+      // ponytail: sale GL posted after invoice.id known — see step 3a below
 
       // 2. COGS entry (GENERAL journal)
       // DR: COGS-Vehicle 5100 / CR: Vehicle Inventory 1400 or 1410
@@ -280,6 +273,7 @@ export class PostingService {
         data: {
           type: 'CUSTOMER_INVOICE',
           status: 'DRAFT',
+          number: invoiceNumber,
           journalId: saleJournal.id,
           partnerId,
           dealId: deal.id,
@@ -290,6 +284,22 @@ export class PostingService {
           amountTotal: totalAR,
           amountResidual: totalAR,
           lines: { create: invoiceLines },
+        },
+      });
+
+      // 3a. Sale GL entry — created after invoice so invoiceId can be set (required for reversal)
+      // DR: AR 1300 / CR: Vehicle Sales Income 4100 + VAT Payable 2200 + Admin Fee 4210 + Insurance 4220
+      this.assertBalanced(saleLines);
+      await tx.journalEntry.create({
+        data: {
+          journalId: saleJournal.id,
+          date: now,
+          ref: `SALE-${dealId.slice(-8).toUpperCase()}`,
+          status: 'POSTED',
+          invoiceId: invoice.id,
+          lines: {
+            create: saleLines,
+          },
         },
       });
 
@@ -1145,6 +1155,102 @@ export class PostingService {
           });
         }
       }
+    });
+  }
+
+  // -- AP Payment Run --
+
+  async postApPaymentRun(
+    invoiceId: string,
+    payJournalId: string,
+    paymentDate: Date,
+    userId: string,
+  ): Promise<void> {
+    const inv = await this.prisma.invoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      include: { journal: true },
+    });
+
+    const journal = await this.prisma.journal.findUniqueOrThrow({
+      where: { id: payJournalId },
+    });
+
+    const companyId = journal.companyId;
+    await this.fiscalPeriodService.assertOpen(paymentDate, companyId);
+
+    const bankAccountId = journal.defaultCreditAccountId;
+    if (!bankAccountId) {
+      throw new BadRequestException(
+        `Journal ${payJournalId} has no default credit account — configure it first`,
+      );
+    }
+
+    const accounts = await this.resolveAccounts(companyId, ['2100']);
+    const amount = Number(inv.amountResidual);
+
+    // DR AP (2100) / CR Bank (journal default credit account)
+    const glLines = [
+      {
+        accountId: accounts['2100'],
+        debit: amount,
+        credit: 0,
+        partnerId: inv.partnerId ?? undefined,
+        label: 'AP Payment Run — Clear AP',
+      },
+      {
+        accountId: bankAccountId,
+        debit: 0,
+        credit: amount,
+        label: 'AP Payment Run — Bank',
+      },
+    ];
+
+    this.assertBalanced(glLines);
+
+    await this.prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.create({
+        data: {
+          type: 'VENDOR_PAYMENT',
+          partnerId: inv.partnerId,
+          journalId: payJournalId,
+          amount,
+          date: paymentDate,
+          method: 'BANK_TRANSFER',
+          status: 'POSTED',
+          memo: `AP Payment Run — Invoice ${invoiceId.slice(-8).toUpperCase()}`,
+        },
+      });
+
+      await tx.paymentAllocation.create({
+        data: { paymentId: payment.id, invoiceId, amount },
+      });
+
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: { amountResidual: 0, paymentStatus: 'PAID' },
+      });
+
+      await tx.journalEntry.create({
+        data: {
+          journalId: payJournalId,
+          date: paymentDate,
+          ref: `APRUN-${invoiceId.slice(-8).toUpperCase()}`,
+          status: 'POSTED',
+          paymentId: payment.id,
+          lines: { create: glLines },
+        },
+      });
+    });
+
+    this.logger.log(
+      `postApPaymentRun: invoiceId=${invoiceId} amount=${amount} journal=${payJournalId}`,
+    );
+    this.auditService.log({
+      userId,
+      action: 'AP_PAYMENT_RUN',
+      entityType: 'Invoice',
+      entityId: invoiceId,
+      changes: { amount, payJournalId, paymentDate },
     });
   }
 

@@ -21,6 +21,8 @@ export class PaymentsService {
       type?: string;
       status?: string;
       partnerId?: string;
+      method?: string;
+      journalId?: string;
       dateFrom?: string;
       dateTo?: string;
       page?: number;
@@ -31,6 +33,8 @@ export class PaymentsService {
       type,
       status,
       partnerId,
+      method,
+      journalId,
       dateFrom,
       dateTo,
       page = 1,
@@ -44,6 +48,8 @@ export class PaymentsService {
         ...(type && { type: (type === 'INBOUND' ? 'CUSTOMER_PAYMENT' : type === 'OUTBOUND' ? 'VENDOR_PAYMENT' : type) as any }),
         ...(status && { status: status as any }),
         ...(partnerId && { partnerId }),
+        ...(method && { method: method as any }),
+        ...(journalId && { journalId }),
         ...(dateFrom || dateTo
           ? {
               date: {
@@ -138,6 +144,10 @@ export class PaymentsService {
           const inv = await tx.invoice.findUniqueOrThrow({
             where: { id: invoiceId },
           });
+          // ponytail: guard added — mirror standalone allocate() constraint
+          if (inv.status !== 'POSTED') {
+            throw new BadRequestException(`Invoice ${invoiceId} is not POSTED`);
+          }
           const allocAmt = Math.min(remaining, Number(inv.amountResidual));
           await tx.paymentAllocation.create({
             data: { paymentId: p.id, invoiceId, amount: allocAmt },
@@ -203,6 +213,17 @@ export class PaymentsService {
         `Allocation amount exceeds invoice residual (${residual})`,
       );
 
+    const existingAllocated = await this.prisma.paymentAllocation.aggregate({
+      where: { paymentId: id },
+      _sum: { amount: true },
+    });
+    const allocatedSoFar = Number(existingAllocated._sum.amount ?? 0);
+    const paymentAmount = Number(payment.amount);
+    if (allocatedSoFar + amount > paymentAmount)
+      throw new BadRequestException(
+        `Exceeds payment unallocated balance (available: ${paymentAmount - allocatedSoFar})`,
+      );
+
     const allocation = await this.prisma.$transaction(async (tx) => {
       const alloc = await tx.paymentAllocation.create({
         data: { paymentId: id, invoiceId, amount },
@@ -253,14 +274,21 @@ export class PaymentsService {
     await this.prisma.$transaction(async (tx) => {
       // unallocate invoices
       for (const alloc of p.allocations) {
+        await tx.paymentAllocation.delete({ where: { id: alloc.id } });
+        const inv = await tx.invoice.update({
+          where: { id: alloc.invoiceId },
+          data: { amountResidual: { increment: Number(alloc.amount) } },
+          select: { amountTotal: true, amountResidual: true },
+        });
+        const newResidual = Number(inv.amountResidual);
+        const total = Number(inv.amountTotal);
+        // ponytail: derive status from actual residual, not hardcoded NOT_PAID
+        const paymentStatus =
+          newResidual <= 0 ? 'PAID' : newResidual < total ? 'PARTIAL' : 'NOT_PAID';
         await tx.invoice.update({
           where: { id: alloc.invoiceId },
-          data: {
-            amountResidual: { increment: Number(alloc.amount) },
-            paymentStatus: 'NOT_PAID',
-          },
+          data: { paymentStatus },
         });
-        await tx.paymentAllocation.delete({ where: { id: alloc.id } });
       }
       await tx.payment.update({ where: { id }, data: { status: 'CANCELLED' } });
     });

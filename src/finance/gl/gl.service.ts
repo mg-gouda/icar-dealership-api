@@ -66,7 +66,9 @@ export class GlService {
     return account;
   }
 
-  async setAccountActive(id: string, isActive: boolean) {
+  async setAccountActive(id: string, isActive: boolean, companyId: string) {
+    const account = await this.prisma.account.findFirst({ where: { id, companyId } });
+    if (!account) throw new NotFoundException(`Account ${id} not found`);
     return this.prisma.account.update({ where: { id }, data: { isActive } });
   }
 
@@ -80,9 +82,9 @@ export class GlService {
   }
 
   // -- Journal Entries --
-  // JournalEntry has no companyId → filter via journal.companyId
+  // JournalEntry has no companyId -> filter via journal.companyId
 
-  getEntries(
+  async getEntries(
     companyId: string,
     query: {
       journalId?: string;
@@ -105,38 +107,43 @@ export class GlService {
       page = 1,
       limit = 20,
     } = query;
-    return this.prisma.journalEntry.findMany({
-      where: {
-        journal: {
-          companyId,
-          ...(locationId && { locationId }),
-        },
-        ...(journalId && { journalId }),
-        ...(status && { status: status as any }),
-        ...(dateFrom || dateTo
-          ? {
-              date: {
-                ...(dateFrom && { gte: new Date(dateFrom) }),
-                ...(dateTo && { lte: new Date(dateTo) }),
-              },
-            }
-          : {}),
-        ...(search && {
-          ref: { contains: search, mode: 'insensitive' as const },
-        }),
+    const where = {
+      journal: {
+        companyId,
+        ...(locationId && { locationId }),
       },
-      include: {
-        journal: { select: { id: true, code: true, name: true } },
-        lines: {
-          include: {
-            account: { select: { id: true, code: true, name: true } },
+      ...(journalId && { journalId }),
+      ...(status && { status: status as any }),
+      ...(dateFrom || dateTo
+        ? {
+            date: {
+              ...(dateFrom && { gte: new Date(dateFrom) }),
+              ...(dateTo && { lte: new Date(dateTo) }),
+            },
+          }
+        : {}),
+      ...(search && {
+        ref: { contains: search, mode: 'insensitive' as const },
+      }),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.journalEntry.findMany({
+        where,
+        include: {
+          journal: { select: { id: true, code: true, name: true } },
+          lines: {
+            include: {
+              account: { select: { id: true, code: true, name: true } },
+            },
           },
         },
-      },
-      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-      skip: (Number(page) - 1) * Number(limit),
-      take: Number(limit),
-    });
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        skip: (Number(page) - 1) * Number(limit),
+        take: Number(limit),
+      }),
+      this.prisma.journalEntry.count({ where }),
+    ]);
+    return { items, total, page: Number(page), limit: Number(limit) };
   }
 
   async getEntry(id: string) {
@@ -147,6 +154,7 @@ export class GlService {
         lines: {
           include: { account: true, analyticAccount: true },
         },
+        reversalEntry: true,
       },
     });
     if (!entry) throw new NotFoundException(`Journal entry ${id} not found`);
@@ -226,8 +234,11 @@ export class GlService {
     const entry = await this.getEntry(id);
     if (entry.status !== 'POSTED')
       throw new BadRequestException('Only posted entries can be reversed');
-    if (entry.reversedEntryId)
+    if (entry.reversalEntry)
       throw new BadRequestException('Entry already reversed');
+
+    // ponytail: enforce fiscal period lock before creating reversal
+    await this.fiscalPeriodService.assertOpen(new Date(), entry.journal.companyId);
 
     const reversal = await this.prisma.$transaction(async (tx) => {
       const rev = await tx.journalEntry.create({
@@ -310,7 +321,7 @@ export class GlService {
   }
 
   // -- Trial Balance --
-  // ponytail: groupBy pushes aggregation to DB → no OOM on large datasets
+  // ponytail: groupBy pushes aggregation to DB -> no OOM on large datasets
 
   async trialBalance(companyId: string, dateFrom: string, dateTo: string) {
     const rows = await this.prisma.journalEntryLine.groupBy({
@@ -567,7 +578,7 @@ export class GlService {
     });
     if (!override)
       throw new BadRequestException(
-        'Unlocking a fiscal period requires Finance Admin — Lock Override permission.',
+        'Unlocking a fiscal period requires Finance Admin - Lock Override permission.',
       );
     const updated = await this.prisma.fiscalPeriod.update({
       where: { id },

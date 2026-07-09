@@ -105,7 +105,11 @@ export class BankStatementsService {
 
     for (let i = 0; i < dataLines.length; i++) {
       const row = i + 2; // 1-indexed, +1 for header
-      const cols = dataLines[i].split(',').map((c) => c.trim());
+      // ponytail: RFC-4180-aware split — handles quoted fields with embedded commas
+      const cols =
+        dataLines[i]
+          .match(/(?:"([^"]*)"|([^,]*))/g)
+          ?.map((c) => c.replace(/^"|"$/g, '').trim()) ?? [];
       if (cols.length < 5) {
         errors.push({
           row,
@@ -176,6 +180,14 @@ export class BankStatementsService {
       }
 
       try {
+        // ponytail: skip duplicate FITID — re-import guard
+        if (fitid) {
+          const existing = await this.prisma.bankStatementLine.findFirst({
+            where: { bankStatementId: statementId, reference: fitid },
+          });
+          if (existing) continue;
+        }
+
         await this.prisma.bankStatementLine.create({
           data: {
             bankStatementId: statementId,

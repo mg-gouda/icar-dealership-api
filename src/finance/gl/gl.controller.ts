@@ -47,14 +47,14 @@ export class GlController {
 
   @Patch('accounts/:id/activate')
   @Roles('ADMIN', 'SUPER_ADMIN')
-  activateAccount(@Param('id') id: string) {
-    return this.svc.setAccountActive(id, true);
+  activateAccount(@Param('id') id: string, @Request() req: any) {
+    return this.svc.setAccountActive(id, true, req.user.companyId);
   }
 
   @Patch('accounts/:id/deactivate')
   @Roles('ADMIN', 'SUPER_ADMIN')
-  deactivateAccount(@Param('id') id: string) {
-    return this.svc.setAccountActive(id, false);
+  deactivateAccount(@Param('id') id: string, @Request() req: any) {
+    return this.svc.setAccountActive(id, false, req.user.companyId);
   }
 
   // Journals

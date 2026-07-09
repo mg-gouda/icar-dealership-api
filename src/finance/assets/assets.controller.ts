@@ -28,6 +28,12 @@ export class AssetsController {
     return this.svc.list(req.user.companyId, q);
   }
 
+  @Get(':id/schedule')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  getSchedule(@Param('id') id: string, @Request() req: any) {
+    return this.svc.getSchedule(id, req.user.companyId);
+  }
+
   @Get(':id')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   getById(@Param('id') id: string, @Request() req: any) {
@@ -53,7 +59,7 @@ export class AssetsController {
   @Patch(':id')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: any, @Request() req: any) {
-    return this.svc.update(id, body, req.user.id);
+    return this.svc.update(id, body, req.user.id, req.user.companyId);
   }
 
   // ponytail: prefill asset from a vendor bill line (fixed-asset account posting trigger)
@@ -83,6 +89,7 @@ export class AssetsController {
       body.month,
       body.journalId,
       req.user.id,
+      req.user.companyId,
     );
   }
 

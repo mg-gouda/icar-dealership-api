@@ -71,6 +71,33 @@ export class ReconciliationService {
 
     await this.prisma.$transaction(async (tx) => {
       for (const pair of pairs) {
+        const [bslCheck, jelCheck] = await Promise.all([
+          tx.bankStatementLine.findUnique({
+            where: { id: pair.bankStatementLineId },
+            select: { reconciled: true },
+          }),
+          tx.journalEntryLine.findUnique({
+            where: { id: pair.journalEntryLineId },
+            select: { reconciled: true },
+          }),
+        ]);
+        if (!bslCheck)
+          throw new BadRequestException(
+            `Bank statement line ${pair.bankStatementLineId} not found`,
+          );
+        if (!jelCheck)
+          throw new BadRequestException(
+            `Journal entry line ${pair.journalEntryLineId} not found`,
+          );
+        if (bslCheck.reconciled)
+          throw new BadRequestException(
+            `Bank statement line ${pair.bankStatementLineId} is already fully reconciled`,
+          );
+        if (jelCheck.reconciled)
+          throw new BadRequestException(
+            `Journal entry line ${pair.journalEntryLineId} is already reconciled`,
+          );
+
         const rec = await tx.reconciliation.create({
           data: {
             bankStatementLineId: pair.bankStatementLineId,
@@ -164,17 +191,35 @@ export class ReconciliationService {
     });
     if (!rec) throw new BadRequestException('Reconciliation not found');
 
-    await this.prisma.$transaction([
-      this.prisma.journalEntryLine.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.journalEntryLine.update({
         where: { id: rec.journalEntryLineId },
         data: { reconciled: false, matchingNumber: null },
-      }),
-      this.prisma.bankStatementLine.update({
-        where: { id: rec.bankStatementLineId },
-        data: { reconciled: false },
-      }),
-      this.prisma.reconciliation.delete({ where: { id: reconciliationId } }),
-    ]);
+      });
+
+      await tx.reconciliation.delete({ where: { id: reconciliationId } });
+
+      // Re-aggregate remaining reconciliations after deletion to decide BSL status
+      const [bsl, remaining] = await Promise.all([
+        tx.bankStatementLine.findUnique({
+          where: { id: rec.bankStatementLineId },
+          select: { amount: true },
+        }),
+        tx.reconciliation.aggregate({
+          where: { bankStatementLineId: rec.bankStatementLineId },
+          _sum: { amount: true },
+        }),
+      ]);
+      const remainingAmt = Number(remaining._sum.amount ?? 0);
+      const bslAmt = Math.abs(Number(bsl?.amount ?? 0));
+      // Only flip BSL to unreconciled if remaining sum no longer covers full amount
+      if (remainingAmt < bslAmt - 0.01) {
+        await tx.bankStatementLine.update({
+          where: { id: rec.bankStatementLineId },
+          data: { reconciled: false },
+        });
+      }
+    });
 
     return { deleted: true };
   }
@@ -199,7 +244,7 @@ export class ReconciliationService {
     );
     const result = await this.prisma.bankStatement.updateMany({
       where: { bankAccountId: accountId, endDate: { gte: from, lte: to } },
-      data: { endingBalance },
+      data: { endingBalance, status: 'CLOSED' },
     });
 
     return {
@@ -208,6 +253,77 @@ export class ReconciliationService {
       allLinesReconciled: allReconciled,
       endingBalance,
     };
+  }
+
+  // ponytail: bulk-match unreconciled statement lines by amount + date proximity
+  async autoReconcile(bankStatementId: string, companyId: string) {
+    const statementLines = await this.prisma.bankStatementLine.findMany({
+      where: { bankStatementId, reconciled: false },
+    });
+
+    const created: { bankStatementLineId: string; reconciliationId: string }[] =
+      [];
+    const threeDays = 3 * 24 * 60 * 60 * 1000;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const bsl of statementLines) {
+        const candidates = await this.suggestMatches(bsl.id, companyId);
+        const bsAmount = Math.abs(Number(bsl.amount));
+
+        const confident = candidates.filter((jel) => {
+          const dateDiff = Math.abs(
+            jel.journalEntry.date.getTime() - bsl.date.getTime(),
+          );
+          const jelDebit = Number(jel.debit);
+          const jelCredit = Number(jel.credit);
+          return (
+            (Math.abs(jelDebit - bsAmount) < 0.01 ||
+              Math.abs(jelCredit - bsAmount) < 0.01) &&
+            dateDiff <= threeDays
+          );
+        });
+
+        if (confident.length === 0) continue;
+
+        const best = confident[0];
+        const jelCheck = await tx.journalEntryLine.findUnique({
+          where: { id: best.id },
+          select: { reconciled: true },
+        });
+        if (!jelCheck || jelCheck.reconciled) continue;
+
+        const matchAmount = Math.max(Number(best.debit), Number(best.credit));
+
+        const rec = await tx.reconciliation.create({
+          data: {
+            bankStatementLineId: bsl.id,
+            journalEntryLineId: best.id,
+            amount: matchAmount,
+          },
+        });
+
+        await tx.journalEntryLine.update({
+          where: { id: best.id },
+          data: { reconciled: true, matchingNumber: rec.id },
+        });
+
+        const reconciledSum = await tx.reconciliation.aggregate({
+          where: { bankStatementLineId: bsl.id },
+          _sum: { amount: true },
+        });
+        const reconciledAmt = Number(reconciledSum._sum.amount ?? 0);
+        if (Math.abs(reconciledAmt - bsAmount) < 0.01) {
+          await tx.bankStatementLine.update({
+            where: { id: bsl.id },
+            data: { reconciled: true },
+          });
+        }
+
+        created.push({ bankStatementLineId: bsl.id, reconciliationId: rec.id });
+      }
+    });
+
+    return { matched: created.length, reconciliations: created };
   }
 
   // ponytail: inline "Create Entry" for unmatched bank lines (fees, interest)
