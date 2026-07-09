@@ -7,6 +7,7 @@ import {
   Body,
   Query,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AppointmentsService } from './appointments.service';
@@ -40,8 +41,8 @@ export class AppointmentsController {
 
   @Post()
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: CreateAppointmentDto) {
-    return this.svc.create(body);
+  create(@Body() body: CreateAppointmentDto, @Request() req: any) {
+    return this.svc.create({ ...body, createdByUserId: req.user.id });
   }
 
   @Patch(':id')

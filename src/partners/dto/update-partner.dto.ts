@@ -31,6 +31,18 @@ export class UpdatePartnerDto {
   currencyId?: string;
 
   @IsOptional()
+  @IsString()
+  vendorCategory?: string;
+
+  @IsOptional()
   @IsBoolean()
-  isActive?: boolean;
+  taxExempt?: boolean;
+
+  @IsOptional()
+  @IsString()
+  taxExemptCertNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  taxExemptCertUrl?: string;
 }

@@ -307,8 +307,8 @@ model Company {
   pettyCashVouchers PettyCashVoucher[] @relation("PettyCashVoucherCompany")
   floorPlanNotes    FloorPlanNote[]    @relation("FloorPlanNoteCompany")
   whtCategories     WhtCategory[]      @relation("WhtCategoryCompany")
-  lookupItems        LookupItem[]        @relation("LookupItemCompany")
-  accreditedDealers  AccreditedDealer[]  @relation("AccreditedDealerCompany")
+  lookupItems       LookupItem[]       @relation("LookupItemCompany")
+  accreditedDealers AccreditedDealer[] @relation("AccreditedDealerCompany")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -480,42 +480,42 @@ model Partner {
 }
 
 model Vehicle {
-  id           String        @id @default(cuid())
-  vin          String?       @unique
-  make         String
-  model        String
-  year         Int
-  trim         String?
-  mileage      Int?
-  price        Decimal       @db.Decimal(14, 2)
-  cost         Decimal?      @db.Decimal(14, 2)
-  status       VehicleStatus @default(IN_TRANSIT)
-  locationId   String
-  location     Location      @relation(fields: [locationId], references: [id])
+  id                 String            @id @default(cuid())
+  vin                String?           @unique
+  make               String
+  model              String
+  year               Int
+  trim               String?
+  mileage            Int?
+  price              Decimal           @db.Decimal(14, 2)
+  cost               Decimal?          @db.Decimal(14, 2)
+  status             VehicleStatus     @default(IN_TRANSIT)
+  locationId         String
+  location           Location          @relation(fields: [locationId], references: [id])
   accreditedDealerId String?
   accreditedDealer   AccreditedDealer? @relation(fields: [accreditedDealerId], references: [id])
-  bodyType     String?
-  fuelType     String?
-  transmission String?
-  color        String?
-  description  String?
-  condition    String?
+  bodyType           String?
+  fuelType           String?
+  transmission       String?
+  color              String?
+  description        String?
+  condition          String?
 
   // Specs & Drivetrain
-  engineSize   String?
-  hp           Int?
-  torque       Int?
-  driveType    String?
-  gearType     String?
-  doors        Int?
-  seats        Int?
+  engineSize String?
+  hp         Int?
+  torque     Int?
+  driveType  String?
+  gearType   String?
+  doors      Int?
+  seats      Int?
 
   // Used vehicle details
   regLicenseNumber         String?
   licenseExpiryDate        DateTime?
-  engineChanged            Boolean  @default(false)
+  engineChanged            Boolean   @default(false)
   newEngineNumber          String?
-  accidentHistory          Boolean  @default(false)
+  accidentHistory          Boolean   @default(false)
   affectedParts            String?
   engineConditionPct       Int?
   transmissionConditionPct Int?
@@ -620,8 +620,9 @@ model LeadActivity {
 }
 
 model Deal {
-  id     String     @id @default(cuid())
-  status DealStatus @default(DRAFT)
+  id             String     @id @default(cuid())
+  trackingToken  String     @unique @default(cuid())
+  status         DealStatus @default(DRAFT)
 
   leadId String?
   lead   Lead?   @relation(fields: [leadId], references: [id])
@@ -673,12 +674,12 @@ model Deal {
 }
 
 model DealNote {
-  id      String  @id @default(cuid())
+  id      String @id @default(cuid())
   dealId  String
-  deal    Deal    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  deal    Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
   userId  String
-  user    User    @relation("DealNoteAuthor", fields: [userId], references: [id])
-  type    String  @default("NOTE")
+  user    User   @relation("DealNoteAuthor", fields: [userId], references: [id])
+  type    String @default("NOTE")
   content String
 
   createdAt DateTime @default(now())
@@ -1863,7 +1864,7 @@ model WhtCategory {
 
 model LookupItem {
   id        String  @id @default(cuid())
-  category  String  // car_make | car_color | body_type | fuel_type | transmission
+  category  String // car_make | car_color | body_type | fuel_type | transmission
   value     String
   label     String
   sortOrder Int     @default(0)
@@ -1884,30 +1885,44 @@ model LookupItem {
 // ---------------------------------------------------------------------------
 
 model AccreditedDealer {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   name         String
   contactName  String?
   contactPhone String?
   contactEmail String?
 
-  carMakes     String[] // values from LookupItem car_make category
+  carMakes String[] // values from LookupItem car_make category
 
-  gracePeriodDays  Int     @default(30)  // days before full payment due
+  gracePeriodDays Int @default(30) // days before full payment due
 
   // Monthly targets
-  monthlyTarget    Int     @default(0)   // cars to sell per month
-  minimumMonthly   Int     @default(0)   // bare minimum per month
-  targetBonus      Decimal @default(0)   @db.Decimal(14, 2) // EGP bonus if target met
-  kickbackPercent  Decimal @default(0)   @db.Decimal(5, 2)  // % of dealer price per car
+  monthlyTarget   Int     @default(0) // cars to sell per month
+  minimumMonthly  Int     @default(0) // bare minimum per month
+  targetBonus     Decimal @default(0) @db.Decimal(14, 2) // EGP bonus if target met
+  kickbackPercent Decimal @default(0) @db.Decimal(5, 2) // % of dealer price per car
 
-  active    Boolean  @default(true)
+  active    Boolean @default(true)
   companyId String
-  company   Company  @relation("AccreditedDealerCompany", fields: [companyId], references: [id])
+  company   Company @relation("AccreditedDealerCompany", fields: [companyId], references: [id])
 
-  vehicles  Vehicle[]
+  vehicles Vehicle[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([companyId, active])
+}
+
+// ---------------------------------------------------------------------------
+// Login Attempt Tracking (DB-backed lockout for PM2 cluster mode)
+// ---------------------------------------------------------------------------
+
+model LoginAttempt {
+  id          String   @id @default(cuid())
+  identifier  String // email or userId
+  ip          String
+  attemptedAt DateTime @default(now())
+
+  @@index([identifier, attemptedAt])
+  @@index([ip, attemptedAt])
 }

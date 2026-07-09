@@ -5,12 +5,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
+import { FiscalPeriodService } from '../fiscal-periods/fiscal-period.service';
 
 @Injectable()
 export class GlService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private fiscalPeriodService: FiscalPeriodService,
   ) {}
 
   // -- Accounts (COA) --
@@ -204,29 +206,8 @@ export class GlService {
     if (entry.status === 'POSTED')
       throw new BadRequestException('Entry already posted');
 
-    // Fiscal period check — mirrors PostingService.assertFiscalPeriodOpen
-    const companyId = entry.journal.companyId;
-    const date = entry.date;
-    const fiscal = await this.prisma.fiscalYear.findFirst({
-      where: { companyId, startDate: { lte: date }, endDate: { gte: date } },
-    });
-    if (!fiscal)
-      throw new BadRequestException('No open fiscal year for the posting date.');
-    if (fiscal.lockDate && date <= fiscal.lockDate) {
-      const override = await this.prisma.userPermission.findFirst({
-        where: { userId, permissionKey: 'finance:lock-override', granted: true },
-      });
-      if (!override)
-        throw new BadRequestException(
-          'Fiscal period is locked. Finance Admin — Lock Override permission required.',
-        );
-      await this.prisma.auditLog.create({
-        data: { entityType: 'FiscalYear', entityId: fiscal.id, action: 'LOCK_OVERRIDE', userId },
-      });
-    }
-
-    // Monthly FiscalPeriod lock check
-    await this.assertFiscalPeriodOpen(companyId, date, userId);
+    // ponytail: single canonical fiscal period check via FiscalPeriodService
+    await this.fiscalPeriodService.assertOpen(entry.date, entry.journal.companyId);
 
     const posted = await this.prisma.journalEntry.update({
       where: { id },
@@ -329,10 +310,11 @@ export class GlService {
   }
 
   // -- Trial Balance --
-  // JournalEntry has no companyId → filter via journal.companyId
+  // ponytail: groupBy pushes aggregation to DB → no OOM on large datasets
 
   async trialBalance(companyId: string, dateFrom: string, dateTo: string) {
-    const lines = await this.prisma.journalEntryLine.findMany({
+    const rows = await this.prisma.journalEntryLine.groupBy({
+      by: ['accountId'],
       where: {
         journalEntry: {
           journal: { companyId },
@@ -340,33 +322,30 @@ export class GlService {
           date: { gte: new Date(dateFrom), lte: new Date(dateTo) },
         },
       },
-      include: {
-        account: { select: { id: true, code: true, name: true, type: true } },
-      },
+      _sum: { debit: true, credit: true },
     });
 
-    const map = new Map<
-      string,
-      {
-        account: any;
-        debit: number;
-        credit: number;
-        balance: number;
-      }
-    >();
-    for (const l of lines) {
-      const key = l.accountId;
-      if (!map.has(key)) {
-        map.set(key, { account: l.account, debit: 0, credit: 0, balance: 0 });
-      }
-      const row = map.get(key)!;
-      row.debit += Number(l.debit);
-      row.credit += Number(l.credit);
-      row.balance = row.debit - row.credit;
-    }
-    return [...map.values()].sort((a, b) =>
-      a.account.code.localeCompare(b.account.code),
-    );
+    const accountIds = rows.map((r) => r.accountId);
+    const accounts = await this.prisma.account.findMany({
+      where: { id: { in: accountIds } },
+      select: { id: true, code: true, name: true, type: true },
+    });
+    const accountMap = new Map(accounts.map((a) => [a.id, a]));
+
+    return rows
+      .map((row) => {
+        const debit = Number(row._sum.debit ?? 0);
+        const credit = Number(row._sum.credit ?? 0);
+        return {
+          account: accountMap.get(row.accountId),
+          debit,
+          credit,
+          balance: debit - credit,
+        };
+      })
+      .sort((a, b) =>
+        (a.account?.code ?? '').localeCompare(b.account?.code ?? ''),
+      );
   }
 
   // -- Recurring templates --
@@ -392,27 +371,7 @@ export class GlService {
         if (Math.abs(totalDebit - totalCredit) > 0.01) continue; // skip unbalanced
 
         // B-7: Fiscal period check before creating recurring entry
-        const fiscal = await tx.fiscalYear.findFirst({
-          where: { companyId, startDate: { lte: asOf }, endDate: { gte: asOf } },
-        });
-        if (!fiscal)
-          throw new BadRequestException('No open fiscal year for the posting date.');
-        if (fiscal.lockDate && asOf <= fiscal.lockDate)
-          throw new BadRequestException('Fiscal period is locked.');
-
-        // Monthly FiscalPeriod lock check
-        const lockedPeriod = await tx.fiscalPeriod.findFirst({
-          where: {
-            companyId,
-            isLocked: true,
-            startDate: { lte: asOf },
-            endDate: { gte: asOf },
-          },
-        });
-        if (lockedPeriod)
-          throw new BadRequestException(
-            `Fiscal period "${lockedPeriod.name}" is locked.`,
-          );
+        await this.fiscalPeriodService.assertOpen(asOf, companyId);
 
         await tx.journalEntry.create({
           data: {
@@ -621,41 +580,6 @@ export class GlService {
       userId,
     });
     return updated;
-  }
-
-  /**
-   * Throws if the entry date falls within a locked FiscalPeriod,
-   * unless the user has finance:lock-override permission.
-   */
-  async assertFiscalPeriodOpen(
-    companyId: string,
-    entryDate: Date,
-    userId: string,
-  ) {
-    const lockedPeriod = await this.prisma.fiscalPeriod.findFirst({
-      where: {
-        companyId,
-        isLocked: true,
-        startDate: { lte: entryDate },
-        endDate: { gte: entryDate },
-      },
-    });
-    if (!lockedPeriod) return; // no locked period covers this date
-    const override = await this.prisma.userPermission.findFirst({
-      where: { userId, permissionKey: 'finance:lock-override', granted: true },
-    });
-    if (!override)
-      throw new BadRequestException(
-        `Fiscal period "${lockedPeriod.name}" is locked. Finance Admin — Lock Override permission required.`,
-      );
-    await this.prisma.auditLog.create({
-      data: {
-        entityType: 'FiscalPeriod',
-        entityId: lockedPeriod.id,
-        action: 'LOCK_OVERRIDE',
-        userId,
-      },
-    });
   }
 
   // -- Private helpers --

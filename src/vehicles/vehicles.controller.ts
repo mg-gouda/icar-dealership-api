@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   Request,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -61,9 +62,13 @@ export class VehiclesController {
 
   @Get(':id')
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  findOne(@Param('id') id: string) {
-    // ponytail: field stripping now handled by FieldPolicyInterceptor
-    return this.vehiclesService.findById(id);
+  async findOne(@Param('id') id: string, @Request() req: any) {
+    const vehicle = await this.vehiclesService.findById(id);
+    // SEC-3: enforce location scope for non-ADMIN per-item access
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role) && vehicle.locationId !== req.user.locationId) {
+      throw new ForbiddenException('Access to this location is not permitted.');
+    }
+    return vehicle;
   }
 
   @Post()

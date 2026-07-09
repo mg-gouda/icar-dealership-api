@@ -111,7 +111,10 @@ export class GlController {
   @Get('trial-balance')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   trialBalance(@Query() q: any, @Request() req: any) {
-    return this.svc.trialBalance(req.user.companyId, q.dateFrom, q.dateTo);
+    const now = new Date();
+    const dateFrom = q.dateFrom ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const dateTo = q.dateTo ?? now.toISOString().slice(0, 10);
+    return this.svc.trialBalance(req.user.companyId, dateFrom, dateTo);
   }
 
   // Fiscal Periods

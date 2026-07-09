@@ -122,9 +122,10 @@ export class DealsService {
       status,
       purchaseMethod,
       salesRepId,
-      page = 1,
-      limit = 20,
     } = query;
+    // ponytail: clamp pagination to prevent negative skip / DoS via huge limit
+    const page = Math.max(1, +(query.page ?? 1) || 1);
+    const limit = Math.min(100, Math.max(1, +(query.limit ?? 20) || 20));
     const where = {
       ...(locationId && { locationId }),
       ...(status && { status: status as any }),

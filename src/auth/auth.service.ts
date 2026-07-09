@@ -12,19 +12,15 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../common/mail/mail.service';
 import { generateSecret, verifyTotp, totpUri } from './totp';
+import { encryptSecret, decryptSecret } from '../common/utils/crypto.util';
 
 const TWO_FA_ROLES = ['FINANCE', 'ADMIN', 'SUPER_ADMIN'];
+// ponytail: DB-backed lockout — survives restarts, works under PM2 cluster
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_WINDOW_MS = 30 * 60 * 1000; // 30 min
 
 @Injectable()
 export class AuthService {
-  // ponytail: in-memory lockout — sufficient for single-process deploy
-  private readonly loginAttempts = new Map<
-    string,
-    { count: number; lockedUntil: Date | null }
-  >();
-  private readonly MAX_ATTEMPTS = 5;
-  private readonly LOCKOUT_MS = 15 * 60 * 1000; // 15 min
-
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
@@ -33,18 +29,21 @@ export class AuthService {
     private mail: MailService,
   ) {}
 
-  async validateUser(email: string, password: string) {
-    // -- Lockout check --
-    const attempt = this.loginAttempts.get(email);
-    if (attempt?.lockedUntil && attempt.lockedUntil > new Date()) {
+  async validateUser(email: string, password: string, ip?: string) {
+    // -- DB-backed lockout check --
+    const windowStart = new Date(Date.now() - LOCKOUT_WINDOW_MS);
+    const recentAttempts = await this.prisma.loginAttempt.count({
+      where: { identifier: email, attemptedAt: { gte: windowStart } },
+    });
+    if (recentAttempts >= MAX_ATTEMPTS) {
       throw new UnauthorizedException(
-        'Account temporarily locked — too many failed attempts. Try again later.',
+        'Too many failed login attempts. Try again in 30 minutes.',
       );
     }
 
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
-      this.recordFailedAttempt(email);
+      await this.recordFailedAttempt(email, ip);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -54,8 +53,7 @@ export class AuthService {
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      this.recordFailedAttempt(email);
-      // Audit login failure (user exists → we have a valid userId for FK)
+      await this.recordFailedAttempt(email, ip);
       this.audit
         .log({
           entity: 'Auth',
@@ -67,22 +65,24 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Success → clear lockout
-    this.loginAttempts.delete(email);
+    // Success -> clear attempts for this email
+    await this.prisma.loginAttempt.deleteMany({
+      where: { identifier: email },
+    });
     return user;
   }
 
-  private async recordFailedAttempt(email: string) {
-    const existing = this.loginAttempts.get(email) ?? {
-      count: 0,
-      lockedUntil: null,
-    };
-    existing.count += 1;
-    const nowLocked =
-      existing.count >= this.MAX_ATTEMPTS && !existing.lockedUntil;
-    if (nowLocked) {
-      existing.lockedUntil = new Date(Date.now() + this.LOCKOUT_MS);
-      // ponytail: fire-and-forget lockout audit — look up userId to satisfy FK
+  private async recordFailedAttempt(email: string, ip?: string) {
+    await this.prisma.loginAttempt.create({
+      data: { identifier: email, ip: ip ?? 'unknown' },
+    });
+    // Check if this attempt triggers lockout -> audit
+    const windowStart = new Date(Date.now() - LOCKOUT_WINDOW_MS);
+    const count = await this.prisma.loginAttempt.count({
+      where: { identifier: email, attemptedAt: { gte: windowStart } },
+    });
+    if (count === MAX_ATTEMPTS) {
+      // ponytail: fire-and-forget lockout audit
       this.prisma.user
         .findUnique({ where: { email }, select: { id: true } })
         .then((u) => {
@@ -96,7 +96,6 @@ export class AuthService {
         })
         .catch(() => {});
     }
-    this.loginAttempts.set(email, existing);
   }
 
   async login(user: {
@@ -111,7 +110,7 @@ export class AuthService {
     if (TWO_FA_ROLES.includes(user.role) && !user.totpEnabled) {
       // Return a short-lived pre-auth token so the frontend can drive enrollment
       const preToken = this.jwt.sign(
-        { sub: user.id, stage: 'totp-setup' },
+        { sub: user.id, type: 'totp-setup' },
         { expiresIn: '10m' },
       );
       return { requiresTotpSetup: true, preAuthToken: preToken };
@@ -120,7 +119,7 @@ export class AuthService {
     if (user.totpEnabled) {
       // Return pre-auth token — client must call /auth/2fa/verify next
       const preToken = this.jwt.sign(
-        { sub: user.id, stage: 'totp-pending' },
+        { sub: user.id, type: 'totp-pending' },
         { expiresIn: '5m' },
       );
       return { requiresTotp: true, preAuthToken: preToken };
@@ -147,7 +146,7 @@ export class AuthService {
     const secret = generateSecret();
     await this.prisma.user.update({
       where: { id: userId },
-      data: { totpSecret: secret },
+      data: { totpSecret: encryptSecret(secret) },
     });
     return { secret, uri: totpUri(secret, user.email) };
   }
@@ -167,7 +166,7 @@ export class AuthService {
     });
     if (!user.totpSecret)
       throw new BadRequestException('Run /auth/2fa/setup first');
-    if (!verifyTotp(user.totpSecret, token))
+    if (!verifyTotp(decryptSecret(user.totpSecret), token))
       throw new UnauthorizedException('Invalid TOTP code');
     await this.prisma.user.update({
       where: { id: userId },
@@ -194,7 +193,7 @@ export class AuthService {
     });
     if (!user.totpEnabled || !user.totpSecret)
       throw new ForbiddenException('2FA not configured');
-    if (!verifyTotp(user.totpSecret, token))
+    if (!verifyTotp(decryptSecret(user.totpSecret), token))
       throw new UnauthorizedException('Invalid TOTP code');
     const tokens = this.issueTokens(user);
     this.audit
@@ -212,12 +211,25 @@ export class AuthService {
       throw new ForbiddenException('Cannot disable 2FA for privileged roles');
     if (!user.totpEnabled || !user.totpSecret)
       throw new BadRequestException('2FA not enabled');
-    if (!verifyTotp(user.totpSecret, token))
+    if (!verifyTotp(decryptSecret(user.totpSecret), token))
       throw new UnauthorizedException('Invalid TOTP code');
     await this.prisma.user.update({
       where: { id: userId },
       data: { totpEnabled: false, totpSecret: null },
     });
+    return { ok: true };
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { passwordHash: true },
+    });
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash ?? '');
+    if (!valid) throw new UnauthorizedException('Current password is incorrect');
+    if (newPassword.length < 8) throw new BadRequestException('Password must be at least 8 characters');
+    const hash = await bcrypt.hash(newPassword, 12);
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } });
     return { ok: true };
   }
 

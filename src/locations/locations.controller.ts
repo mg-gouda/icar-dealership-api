@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -51,6 +52,12 @@ export class LocationsController {
   @Roles('ADMIN', 'SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: UpdateLocationDto, @Request() req: any) {
     return this.svc.update(id, body, req.user.id);
+  }
+
+  @Delete(':id')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  deactivate(@Param('id') id: string, @Request() req: any) {
+    return this.svc.deactivate(id, req.user.id);
   }
 
   // ── Company profile (fee bounds config) ─────────────────────────────────

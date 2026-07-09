@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Decimal } from '@prisma/client/runtime/library';
+import { buildVehicleWhereClause } from '../common/helpers/vehicle-query.helper';
 
 interface DateRange {
   dateFrom?: string;
@@ -81,8 +82,7 @@ export class OperationalReportsService {
   // ── Inventory Aging ───────────────────────────────────────────────
 
   async inventoryAging(locationId?: string) {
-    const where: any = { status: 'AVAILABLE' };
-    if (locationId) where.locationId = locationId;
+    const where = buildVehicleWhereClause({ status: 'AVAILABLE', locationId });
 
     const vehicles = await this.prisma.vehicle.findMany({
       where,

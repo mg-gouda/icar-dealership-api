@@ -24,14 +24,14 @@ export class AssetsController {
 
   @Get()
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  list(@Query() q: any) {
-    return this.svc.list(q);
+  list(@Query() q: any, @Request() req: any) {
+    return this.svc.list(req.user.companyId, q);
   }
 
   @Get(':id')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  getById(@Param('id') id: string) {
-    return this.svc.getById(id);
+  getById(@Param('id') id: string, @Request() req: any) {
+    return this.svc.getById(id, req.user.companyId);
   }
 
   @Post()

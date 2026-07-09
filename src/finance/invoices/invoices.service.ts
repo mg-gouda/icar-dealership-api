@@ -90,6 +90,15 @@ export class InvoicesService {
     return inv;
   }
 
+  // ponytail: sequential invoice number per company
+  private async generateInvoiceNumber(companyId: string): Promise<string> {
+    const year = new Date().getFullYear();
+    const count = await this.prisma.invoice.count({
+      where: { journal: { companyId } },
+    });
+    return `INV-${year}-${String(count + 1).padStart(5, '0')}`;
+  }
+
   async create(
     data: {
       journalId: string;
@@ -99,6 +108,7 @@ export class InvoicesService {
       date?: string;
       dueDate?: string;
       currencyId?: string;
+      number?: string;
       lines: Array<{
         description: string;
         quantity: number;
@@ -115,10 +125,18 @@ export class InvoicesService {
       0,
     );
 
+    // Resolve company from journal for number generation
+    const journal = await this.prisma.journal.findUniqueOrThrow({
+      where: { id: data.journalId },
+      select: { companyId: true },
+    });
+    const number = data.number || await this.generateInvoiceNumber(journal.companyId);
+
     const inv = await this.prisma.invoice.create({
       data: {
         journalId: data.journalId,
         type: data.type as any,
+        number,
         partnerId: data.partnerId,
         dealId: data.dealId,
         date: data.date ? new Date(data.date) : new Date(),

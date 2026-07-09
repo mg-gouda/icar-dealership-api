@@ -35,8 +35,8 @@ export class ReconciliationController {
 
   @Get('unreconciled-lines')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  getUnreconciled(@Query() q: any) {
-    return this.svc.getUnreconciledLines(q.companyId, q);
+  getUnreconciled(@Request() req: any, @Query() q: any) {
+    return this.svc.getUnreconciledLines(req.user.companyId, q);
   }
 
   @Post()

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { Prisma, JournalType } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 
@@ -14,8 +15,8 @@ export class JournalsService {
   ) {}
 
   async list(companyId: string, query: { type?: string; locationId?: string }) {
-    const where: any = { companyId };
-    if (query.type) where.type = query.type;
+    const where: Prisma.JournalWhereInput = { companyId };
+    if (query.type) where.type = query.type as JournalType;
     if (query.locationId) where.locationId = query.locationId;
 
     return this.prisma.journal.findMany({
@@ -66,7 +67,19 @@ export class JournalsService {
     if (existing)
       throw new BadRequestException(`Journal code ${data.code} already exists`);
 
-    const journal = await this.prisma.journal.create({ data: data as any });
+    const createData: Prisma.JournalUncheckedCreateInput = {
+      companyId: data.companyId,
+      name: data.name,
+      code: data.code,
+      type: data.type as JournalType,
+      locationId: data.locationId ?? null,
+      defaultDebitAccountId: data.defaultDebitAccountId ?? null,
+      defaultCreditAccountId: data.defaultCreditAccountId ?? null,
+      currencyId: data.currencyId ?? null,
+      sequencePrefix: data.sequencePrefix ?? null,
+      bankAccountId: data.bankAccountId ?? null,
+    };
+    const journal = await this.prisma.journal.create({ data: createData });
     await this.audit.log({
       userId,
       action: 'CREATE',
@@ -95,9 +108,18 @@ export class JournalsService {
     });
     if (!journal) throw new NotFoundException('Journal not found');
 
+    const updateData: Prisma.JournalUncheckedUpdateInput = {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.type !== undefined && { type: data.type as JournalType }),
+      ...(data.locationId !== undefined && { locationId: data.locationId }),
+      ...(data.defaultDebitAccountId !== undefined && { defaultDebitAccountId: data.defaultDebitAccountId }),
+      ...(data.defaultCreditAccountId !== undefined && { defaultCreditAccountId: data.defaultCreditAccountId }),
+      ...(data.currencyId !== undefined && { currencyId: data.currencyId }),
+      ...(data.sequencePrefix !== undefined && { sequencePrefix: data.sequencePrefix }),
+    };
     const updated = await this.prisma.journal.update({
       where: { id },
-      data: data as any,
+      data: updateData,
     });
     await this.audit.log({
       userId,

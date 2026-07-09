@@ -40,7 +40,8 @@ export class PaymentsService {
       where: {
         // Payment has no companyId → filter via journal.companyId
         journal: { companyId },
-        ...(type && { type: type as any }),
+        // ponytail: map UI aliases → DB enum
+        ...(type && { type: (type === 'INBOUND' ? 'CUSTOMER_PAYMENT' : type === 'OUTBOUND' ? 'VENDOR_PAYMENT' : type) as any }),
         ...(status && { status: status as any }),
         ...(partnerId && { partnerId }),
         ...(dateFrom || dateTo
@@ -107,8 +108,7 @@ export class PaymentsService {
       });
       if (whtCat && whtCat.isActive) {
         whtCategoryId = whtCat.id;
-        whtAmount = Math.round(data.amount * Number(whtCat.rate) * 100) / 10000;
-        // whtAmount = amount * rate / 100, done via (amount * rate) / 100
+        // ponytail: whtAmount = amount * rate / 100
         whtAmount = Math.round(data.amount * Number(whtCat.rate)) / 100;
       }
     }

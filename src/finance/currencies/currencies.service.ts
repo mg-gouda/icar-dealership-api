@@ -1,12 +1,14 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
+import { FiscalPeriodService } from '../fiscal-periods/fiscal-period.service';
 
 @Injectable()
 export class CurrenciesService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private fiscalPeriodService: FiscalPeriodService,
   ) {}
 
   // ── Base Currency ──
@@ -165,31 +167,6 @@ export class CurrenciesService {
     return { deleted: true };
   }
 
-  // ponytail: fiscal period gate inlined — no shared service dep needed here
-  private async assertFiscalPeriodOpen(date: Date, companyId: string, userId?: string) {
-    const fiscal = await this.prisma.fiscalYear.findFirst({
-      where: { companyId, startDate: { lte: date }, endDate: { gte: date } },
-    });
-    if (!fiscal)
-      throw new BadRequestException('No open fiscal year for the posting date.');
-    if (fiscal.lockDate && date <= fiscal.lockDate) {
-      if (userId) {
-        const override = await this.prisma.userPermission.findFirst({
-          where: { userId, permissionKey: 'finance:lock-override', granted: true },
-        });
-        if (override) {
-          await this.prisma.auditLog.create({
-            data: { entityType: 'FiscalYear', entityId: fiscal.id, action: 'LOCK_OVERRIDE', userId },
-          });
-          return;
-        }
-      }
-      throw new BadRequestException(
-        'Fiscal period is locked. Finance Admin — Lock Override permission required.',
-      );
-    }
-  }
-
   async revaluate(companyId: string, userId: string) {
     // Find open foreign-currency GL lines with amountCurrency set
     const openLines = await this.prisma.journalEntryLine.findMany({
@@ -223,7 +200,7 @@ export class CurrenciesService {
     const today = new Date();
 
     // Fiscal period check for revaluation date
-    await this.assertFiscalPeriodOpen(today, companyId, userId);
+    await this.fiscalPeriodService.assertOpen(today, companyId);
 
     // Compute reversal date = first day of next month
     const reversalDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);

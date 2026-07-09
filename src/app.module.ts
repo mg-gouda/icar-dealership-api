@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { LoggerModule } from 'nestjs-pino';
 
 import { PrismaModule } from './common/prisma/prisma.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -9,6 +10,7 @@ import { FieldPolicyInterceptor } from './common/field-policies/field-policy.int
 import { DecimalInterceptor } from './common/interceptors/decimal.interceptor';
 
 import { AuthModule } from './auth/auth.module';
+import { HealthModule } from './health/health.module';
 import { UsersModule } from './users/users.module';
 import { LocationsModule } from './locations/locations.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
@@ -50,6 +52,10 @@ import { PettyCashModule } from './petty-cash/petty-cash.module';
 import { ImportShipmentsModule } from './import-shipments/import-shipments.module';
 import { FloorPlanModule } from './floor-plan/floor-plan.module';
 import { OperationalReportsModule } from './reports/reports.module';
+import { FinanceDashboardModule } from './finance/dashboard/finance-dashboard.module';
+import { SettingsModule } from './settings/settings.module';
+import { LookupItemsModule } from './lookup-items/lookup-items.module';
+import { AccreditedDealersModule } from './accredited-dealers/accredited-dealers.module';
 
 @Module({
   imports: [
@@ -59,8 +65,20 @@ import { OperationalReportsModule } from './reports/reports.module';
       // Raise limit for local dev/test; prod sits behind Nginx rate-limiting
       limit: process.env.NODE_ENV === 'production' ? 200 : 2000,
     }]),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        transport: process.env.NODE_ENV !== 'production'
+          ? { target: 'pino-pretty', options: { singleLine: true } }
+          : undefined,
+        level: process.env.LOG_LEVEL ?? 'info',
+        redact: ['req.headers.authorization', 'req.headers.cookie'],
+      },
+    }),
     PrismaModule,
     AuditModule,
+
+    // Health
+    HealthModule,
 
     // Auth
     AuthModule,
@@ -118,6 +136,18 @@ import { OperationalReportsModule } from './reports/reports.module';
 
     // Operational Reports
     OperationalReportsModule,
+
+    // Finance dashboard summary + todos
+    FinanceDashboardModule,
+
+    // Root settings controller
+    SettingsModule,
+
+    // Editable dropdown lookup lists
+    LookupItemsModule,
+
+    // Accredited car dealers (manufacturers / importers)
+    AccreditedDealersModule,
 
     // Cross-cutting
     MailModule,

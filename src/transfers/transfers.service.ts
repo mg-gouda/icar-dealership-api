@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { FiscalPeriodService } from '../finance/fiscal-periods/fiscal-period.service';
 
 @Injectable()
 export class TransfersService {
@@ -10,6 +11,7 @@ export class TransfersService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private fiscalPeriodService: FiscalPeriodService,
   ) {}
 
   async createTransfer(
@@ -65,6 +67,9 @@ export class TransfersService {
         `Missing required GL accounts for transfers (need codes 1310, 2310, 1200). Found ${fallback.length} accounts. Run prisma:seed first.`,
       );
     }
+
+    // Fiscal period gate before posting
+    await this.fiscalPeriodService.assertOpen(journalDate, this.companyId);
 
     // Atomic: create both journal entries in one transaction
     const result = await this.prisma.$transaction(async (tx) => {

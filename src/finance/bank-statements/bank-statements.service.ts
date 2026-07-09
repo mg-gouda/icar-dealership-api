@@ -5,8 +5,9 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 export class BankStatementsService {
   constructor(private prisma: PrismaService) {}
 
-  async list(query: { bankAccountId?: string; page?: number; limit?: number }) {
+  async list(_companyId: string, query: { bankAccountId?: string; page?: number; limit?: number }) {
     const { bankAccountId, page = 1, limit = 20 } = query;
+    // ponytail: BankStatement has no companyId — single-company schema, filter by bankAccountId only
     const where: any = {};
     if (bankAccountId) where.bankAccountId = bankAccountId;
 
@@ -27,8 +28,8 @@ export class BankStatementsService {
     return { items, total, page, limit };
   }
 
-  async getById(id: string) {
-    const stmt = await this.prisma.bankStatement.findUnique({
+  async getById(id: string, _companyId?: string) {
+    const stmt = await this.prisma.bankStatement.findFirst({
       where: { id },
       include: {
         bankAccount: true,

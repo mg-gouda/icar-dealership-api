@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { Prisma, AssetMethodType } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -10,10 +11,11 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 export class AssetsService {
   constructor(private prisma: PrismaService) {}
 
-  async list(query: { state?: string; page?: number; limit?: number }) {
+  async list(companyId: string, query: { state?: string; page?: number; limit?: number }) {
     const { state, page = 1, limit = 20 } = query;
-    const where: any = {};
-    if (state) where.state = state;
+    // ponytail: Asset has no companyId field — filter via assetAccount relation
+    const where: Prisma.AssetWhereInput = { assetAccount: { companyId } };
+    if (state) where.state = state as Prisma.EnumAssetStateFilter['equals'];
 
     const [items, total] = await Promise.all([
       this.prisma.asset.findMany({
@@ -33,9 +35,13 @@ export class AssetsService {
     return { items, total, page, limit };
   }
 
-  async getById(id: string) {
-    const asset = await this.prisma.asset.findUnique({
-      where: { id },
+  async getById(id: string, companyId?: string) {
+    // ponytail: Asset has no companyId — scope via assetAccount relation when provided
+    const where: Prisma.AssetWhereInput = companyId
+      ? { id, assetAccount: { companyId } }
+      : { id };
+    const asset = await this.prisma.asset.findFirst({
+      where,
       include: {
         assetAccount: true,
         depreciationExpenseAccount: true,
@@ -62,7 +68,20 @@ export class AssetsService {
   }) {
     // B-24: Atomic create — asset + depreciation lines in single transaction
     const asset = await this.prisma.$transaction(async (tx) => {
-      const a = await tx.asset.create({ data: data as any });
+      const createData: Prisma.AssetUncheckedCreateInput = {
+        name: data.name,
+        assetAccountId: data.assetAccountId,
+        depreciationExpenseAccountId: data.depreciationExpenseAccountId,
+        accumulatedDepAccountId: data.accumulatedDepAccountId,
+        originalValue: data.originalValue,
+        salvageValue: data.salvageValue ?? 0,
+        method: (data.method as AssetMethodType) ?? 'LINEAR',
+        decliningRate: data.decliningRate ?? null,
+        durationMonths: data.durationMonths,
+        startDate: data.startDate,
+        vendorBillId: data.vendorBillId ?? null,
+      };
+      const a = await tx.asset.create({ data: createData });
       const lines = this.computeDepreciationSchedule(a);
       await tx.assetDepreciationLine.createMany({
         data: lines.map((l, idx) => ({
@@ -80,7 +99,7 @@ export class AssetsService {
     return this.getById(asset.id);
   }
 
-  async update(id: string, data: any, userId: string) {
+  async update(id: string, data: Prisma.AssetUncheckedUpdateInput, userId: string) {
     return this.prisma.asset.update({ where: { id }, data });
   }
 
@@ -110,7 +129,6 @@ export class AssetsService {
         ? new Date(String(overrides.startDate))
         : new Date(),
       vendorBillId: line.invoiceId,
-      ...(overrides as any),
     });
   }
 
@@ -260,15 +278,14 @@ export class AssetsService {
     userId: string,
   ) {
     const asset = await this.getById(assetId);
-    if ((asset as any).state === 'CLOSED')
+    if (asset.state === 'CLOSED')
       throw new BadRequestException('Asset already closed/disposed');
     const proceeds = new Decimal(body.proceedsAmount ?? 0);
-    const postedLines: Array<{ accumulatedAmount: string | number }> =
-      (asset as any).depreciationLines?.filter((l: any) => l.posted) ?? [];
+    const postedLines = asset.depreciationLines.filter((l) => l.posted);
     const accumulated = postedLines.length
-      ? new Decimal(postedLines[postedLines.length - 1].accumulatedAmount)
+      ? new Decimal(postedLines[postedLines.length - 1].accumulatedAmount.toString())
       : new Decimal(0);
-    const bookValue = new Decimal((asset as any).originalValue).minus(accumulated);
+    const bookValue = new Decimal(asset.originalValue.toString()).minus(accumulated);
     const gainLoss = proceeds.minus(bookValue);
     const disposeDate = new Date(body.date);
 
@@ -277,8 +294,6 @@ export class AssetsService {
 
       // Post disposal GL entry if a journal is provided
       if (body.journalId) {
-        const a = asset as any;
-
         // B-8: Fiscal period check before posting disposal
         const journal = await tx.journal.findUniqueOrThrow({ where: { id: body.journalId } });
         const fiscal = await tx.fiscalYear.findFirst({
@@ -288,11 +303,12 @@ export class AssetsService {
         if (fiscal.lockDate && disposeDate <= fiscal.lockDate)
           throw new BadRequestException('Fiscal period is locked.');
 
-        const glLines: any[] = [
+        interface GlLine { accountId: string; label: string; debit: number; credit: number }
+        const glLines: GlLine[] = [
           // Remove asset at cost: CR Fixed Asset
-          { accountId: a.assetAccountId, label: `Disposal – ${a.name}`, debit: 0, credit: Number(a.originalValue) },
+          { accountId: asset.assetAccountId, label: `Disposal – ${asset.name}`, debit: 0, credit: Number(asset.originalValue) },
           // Remove accumulated depreciation: DR Acc Dep
-          { accountId: a.accumulatedDepAccountId, label: `Acc Dep – ${a.name}`, debit: accumulated.toNumber(), credit: 0 },
+          { accountId: asset.accumulatedDepAccountId, label: `Acc Dep – ${asset.name}`, debit: accumulated.toNumber(), credit: 0 },
         ];
         if (proceeds.gt(0)) {
           // F-7: Throw if proceeds account not found
@@ -313,8 +329,8 @@ export class AssetsService {
             : { accountId: glAcc.id, label: 'Loss on disposal', debit: gainLoss.negated().toNumber(), credit: 0 });
         }
         // F-7: Assert balanced before posting
-        const totalDebit = glLines.reduce((s: number, l: any) => s + l.debit, 0);
-        const totalCredit = glLines.reduce((s: number, l: any) => s + l.credit, 0);
+        const totalDebit = glLines.reduce((s, l) => s + l.debit, 0);
+        const totalCredit = glLines.reduce((s, l) => s + l.credit, 0);
         if (Math.abs(totalDebit - totalCredit) > 0.01) {
           throw new BadRequestException(`Disposal entry unbalanced: DR ${totalDebit} != CR ${totalCredit}`);
         }
@@ -322,7 +338,7 @@ export class AssetsService {
           data: {
             journalId: body.journalId,
             date: disposeDate,
-            ref: `DISP/${a.name}`,
+            ref: `DISP/${asset.name}`,
             status: 'POSTED',
             lines: { create: glLines },
           },

@@ -17,6 +17,14 @@ export class CreateLocationDto {
   phone?: string;
 
   @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  manager?: string;
+
+  @IsOptional()
   @IsNumber()
   defaultAdminFee?: number;
 

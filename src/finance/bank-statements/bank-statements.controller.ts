@@ -6,6 +6,7 @@ import {
   Body,
   Query,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -22,8 +23,8 @@ export class BankStatementsController {
 
   @Get()
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  list(@Query() q: any) {
-    return this.svc.list(q);
+  list(@Request() req: any, @Query() q: any) {
+    return this.svc.list(req.user.companyId, q);
   }
 
   @Get('bank-accounts')
@@ -40,14 +41,14 @@ export class BankStatementsController {
 
   @Get(':id')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  getById(@Param('id') id: string) {
-    return this.svc.getById(id);
+  getById(@Param('id') id: string, @Request() req: any) {
+    return this.svc.getById(id, req.user.companyId);
   }
 
   @Post()
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: any) {
-    return this.svc.create(body);
+  create(@Body() body: any, @Request() req: any) {
+    return this.svc.create({ ...body, companyId: req.user.companyId });
   }
 
   @Post(':id/lines')

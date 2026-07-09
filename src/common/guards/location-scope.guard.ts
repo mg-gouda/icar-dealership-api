@@ -32,7 +32,8 @@ export class LocationScopeGuard implements CanActivate {
     if (!requestedLocationId) {
       // Non-admin users without an explicit locationId: inject their own so services auto-filter
       if (user?.locationId && !['SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
-        request.query = { ...request.query, locationId: user.locationId };
+        // request.query is a read-only getter in Express — mutate the object it returns
+        (request.query as Record<string, unknown>)['locationId'] = user.locationId;
       }
       return true;
     }

@@ -38,7 +38,9 @@ export class FieldPolicyWritePipe implements PipeTransform {
 
     for (const policy of policies) {
       const writeMin = policy.writeMinRole ?? policy.minRole;
-      if (policy.field in value && !roleAtLeast(userRole, writeMin)) {
+      // ponytail: check value !== undefined — ValidationPipe with transform:true adds all DTO
+      // properties as undefined keys, so `in` alone would block every non-ADMIN PATCH
+      if (policy.field in value && value[policy.field] !== undefined && !roleAtLeast(userRole, writeMin)) {
         throw new ForbiddenException(
           `Insufficient permissions to set field "${policy.field}" on ${this.entity}`,
         );
@@ -58,7 +60,7 @@ export function assertFieldWriteAccess(
   const policies = FIELD_POLICIES.filter((p) => p.entity === entity);
   for (const policy of policies) {
     const writeMin = policy.writeMinRole ?? policy.minRole;
-    if (policy.field in body && !roleAtLeast(userRole, writeMin)) {
+    if (policy.field in body && body[policy.field] !== undefined && !roleAtLeast(userRole, writeMin)) {
       throw new ForbiddenException(
         `Insufficient permissions to set field "${policy.field}" on ${entity}`,
       );

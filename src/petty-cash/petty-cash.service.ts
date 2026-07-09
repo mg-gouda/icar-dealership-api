@@ -5,23 +5,22 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-
-// ponytail: hardcoded company for single-company setup
-const COMPANY_ID = 'company-001';
+import { FiscalPeriodService } from '../finance/fiscal-periods/fiscal-period.service';
 
 @Injectable()
 export class PettyCashService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private fiscalPeriodService: FiscalPeriodService,
   ) {}
 
   // ── Funds ────────────────────────────────────────────────────────────────
 
-  async listFunds(query: { locationId?: string; page?: number; limit?: number }) {
+  async listFunds(companyId: string, query: { locationId?: string; page?: number; limit?: number }) {
     const { locationId, page = 1, limit = 20 } = query;
     const where = {
-      companyId: COMPANY_ID,
+      companyId,
       ...(locationId && { locationId }),
     };
     const [data, total] = await this.prisma.$transaction([
@@ -41,6 +40,7 @@ export class PettyCashService {
   }
 
   async createFund(
+    companyId: string,
     data: {
       name: string;
       locationId: string;
@@ -55,7 +55,7 @@ export class PettyCashService {
         locationId: data.locationId,
         custodianId: data.custodianId,
         balance: data.balance ?? 0,
-        companyId: COMPANY_ID,
+        companyId,
       },
     });
     await this.audit.log({
@@ -69,6 +69,7 @@ export class PettyCashService {
   }
 
   async updateFund(
+    companyId: string,
     id: string,
     body: { name?: string; custodianId?: string; isActive?: boolean; replenishAmount?: number },
     userId: string,
@@ -77,7 +78,7 @@ export class PettyCashService {
 
     // ── Replenish flow ────────────────────────────────────────────────────
     if (body.replenishAmount && body.replenishAmount > 0) {
-      return this.replenishFund(fund, body.replenishAmount, userId);
+      return this.replenishFund(companyId, fund, body.replenishAmount, userId);
     }
 
     // ── Normal field update ───────────────────────────────────────────────
@@ -97,16 +98,17 @@ export class PettyCashService {
   }
 
   private async replenishFund(
+    companyId: string,
     fund: { id: string; locationId: string; balance: any },
     amount: number,
     userId: string,
   ) {
     // ponytail: find accounts by code — 1100 = Cash, 1110 = Petty Cash
     const cashAccount = await this.prisma.account.findFirst({
-      where: { companyId: COMPANY_ID, type: { in: ['ASSET'] }, code: '1100' },
+      where: { companyId, type: { in: ['ASSET'] }, code: '1100' },
     });
     const replenishAccount = await this.prisma.account.findFirst({
-      where: { companyId: COMPANY_ID, type: 'ASSET', code: '1110' },
+      where: { companyId, type: 'ASSET', code: '1110' },
     });
     if (!cashAccount || !replenishAccount) {
       throw new BadRequestException(
@@ -122,6 +124,7 @@ export class PettyCashService {
     }
 
     const now = new Date();
+    await this.fiscalPeriodService.assertOpen(now, companyId);
     const updated = await this.prisma.$transaction(async (tx) => {
       const result = await tx.pettyCashFund.update({
         where: { id: fund.id },
@@ -169,7 +172,7 @@ export class PettyCashService {
 
   // ── Vouchers ─────────────────────────────────────────────────────────────
 
-  async listVouchers(query: {
+  async listVouchers(companyId: string, query: {
     fundId?: string;
     status?: string;
     submittedBy?: string;
@@ -178,7 +181,7 @@ export class PettyCashService {
   }) {
     const { fundId, status, submittedBy, page = 1, limit = 20 } = query;
     const where = {
-      companyId: COMPANY_ID,
+      companyId,
       ...(fundId && { fundId }),
       ...(status && { status: status as any }),
       ...(submittedBy && { submittedBy }),
@@ -201,6 +204,7 @@ export class PettyCashService {
   }
 
   async submitVoucher(
+    companyId: string,
     data: {
       fundId: string;
       amount: number;
@@ -221,7 +225,7 @@ export class PettyCashService {
         category: data.category,
         receiptUrl: data.receiptUrl,
         submittedBy: userId,
-        companyId: COMPANY_ID,
+        companyId,
         status: 'PENDING',
       },
     });
@@ -235,7 +239,7 @@ export class PettyCashService {
     return voucher;
   }
 
-  async approveVoucher(id: string, userId: string) {
+  async approveVoucher(companyId: string, id: string, userId: string) {
     const voucher = await this.prisma.pettyCashVoucher.findUniqueOrThrow({
       where: { id },
       include: { fund: true },
@@ -254,10 +258,10 @@ export class PettyCashService {
 
     // Resolve GL accounts
     const expenseAccount = await this.prisma.account.findFirst({
-      where: { companyId: COMPANY_ID, type: 'EXPENSE' },
+      where: { companyId, type: 'EXPENSE' },
     });
     const cashAccount = await this.prisma.account.findFirst({
-      where: { companyId: COMPANY_ID, type: 'ASSET', code: '1100' },
+      where: { companyId, type: 'ASSET', code: '1100' },
     });
     if (!expenseAccount || !cashAccount) {
       throw new BadRequestException(
@@ -273,6 +277,7 @@ export class PettyCashService {
     }
 
     const now = new Date();
+    await this.fiscalPeriodService.assertOpen(now, companyId);
     const result = await this.prisma.$transaction(async (tx) => {
       // 1. Decrement fund balance
       await tx.pettyCashFund.update({

@@ -99,7 +99,8 @@ export class AuthController {
   // ── 2FA setup (first-time enrollment) ──────────────────────────────────────
 
   // Call with preAuthToken in Authorization header to get secret + QR URI
-  @UseGuards(AuthGuard('jwt'))
+  // ponytail: uses jwt-preauth strategy — accepts totp-setup tokens (regular jwt rejects them)
+  @UseGuards(AuthGuard('jwt-preauth'))
   @Post('2fa/setup')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Generate TOTP secret for enrollment' })
@@ -108,7 +109,7 @@ export class AuthController {
   }
 
   // Confirm enrollment by providing first valid code
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt-preauth'))
   @Post('2fa/confirm')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Confirm TOTP enrollment with first valid code' })
@@ -128,7 +129,7 @@ export class AuthController {
   }
 
   // Called after login when requiresTotp: true
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt-preauth'))
   @Post('2fa/verify')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify TOTP code during login flow' })
@@ -144,6 +145,19 @@ export class AuthController {
     if (result.accessToken)
       setAuthCookies(res, result.accessToken, result.refreshToken);
     return result;
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Change own password (requires current password)' })
+  changePassword(
+    @Request() req: any,
+    @Body('currentPassword') currentPassword: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    return this.authService.changePassword(req.user.id, currentPassword, newPassword);
   }
 
   @ApiBearerAuth()

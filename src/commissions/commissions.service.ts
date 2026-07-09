@@ -1,12 +1,14 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PostingService } from '../finance/posting/posting.service';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class CommissionsService {
   constructor(
     private prisma: PrismaService,
     private posting: PostingService,
+    private audit: AuditService,
   ) {}
 
   async list(filters: {
@@ -155,6 +157,14 @@ export class CommissionsService {
       );
 
     await this.posting.payCommission(commissionIds, journalId, userId);
+
+    await this.audit.log({
+      entity: 'Commission',
+      entityId: commissionIds.join(','),
+      action: 'COMMISSION_PAID',
+      userId,
+    });
+
     const updated = await this.prisma.dealCommission.findMany({
       where: { id: { in: commissionIds } },
       select: { id: true, status: true, calculatedAmount: true, paidAt: true },

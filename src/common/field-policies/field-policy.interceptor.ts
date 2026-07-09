@@ -76,7 +76,7 @@ function stripFields(data: any, policies: FieldPolicy[], userRole: Role): any {
     // Recurse into nested objects that might match other entity policies
     // (e.g. Deal response containing embedded financeApplication)
     for (const key of Object.keys(result)) {
-      if (result[key] !== null && typeof result[key] === 'object') {
+      if (result[key] !== null && typeof result[key] === 'object' && !(result[key] instanceof Date)) {
         result[key] = stripFields(result[key], policies, userRole);
       }
     }

@@ -14,8 +14,8 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { LocationScopeGuard } from '../common/guards/location-scope.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { LocationScope } from '../common/decorators/location-scope.decorator';
-import { PrismaService } from '../common/prisma/prisma.service';
 import { FieldPolicyEntity } from '../common/field-policies';
+import { PartnersService } from './partners.service';
 import { CreatePartnerDto } from './dto/create-partner.dto';
 import { UpdatePartnerDto } from './dto/update-partner.dto';
 
@@ -25,7 +25,7 @@ import { UpdatePartnerDto } from './dto/update-partner.dto';
 @FieldPolicyEntity('Partner')
 @Controller({ path: 'partners', version: '1' })
 export class PartnersController {
-  constructor(private prisma: PrismaService) {}
+  constructor(private partners: PartnersService) {}
 
   @Get()
   @LocationScope()
@@ -36,32 +36,29 @@ export class PartnersController {
     @Query('page') page = '1',
     @Query('q') q?: string,
   ) {
-    const where: any = {};
-    if (type) where.type = type;
-    if (q) where.name = { contains: q, mode: 'insensitive' };
-    return this.prisma.partner.findMany({
-      where,
-      skip: (Number(page) - 1) * Number(limit),
-      take: Number(limit),
-      orderBy: { name: 'asc' },
+    return this.partners.list({
+      type,
+      q,
+      page: Number(page),
+      limit: Number(limit),
     });
   }
 
   @Get(':id')
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   findOne(@Param('id') id: string) {
-    return this.prisma.partner.findUniqueOrThrow({ where: { id } });
+    return this.partners.findById(id);
   }
 
   @Post()
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   create(@Body() body: CreatePartnerDto) {
-    return this.prisma.partner.create({ data: body });
+    return this.partners.create(body);
   }
 
   @Patch(':id')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: UpdatePartnerDto) {
-    return this.prisma.partner.update({ where: { id }, data: body });
+    return this.partners.update(id, body);
   }
 }

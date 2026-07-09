@@ -81,6 +81,14 @@ export class LocationsService {
     return loc;
   }
 
+  async deactivate(id: string, userId: string) {
+    const loc = await this.prisma.location.findUnique({ where: { id } });
+    if (!loc) throw new NotFoundException(`Location ${id} not found`);
+    const updated = await this.prisma.location.update({ where: { id }, data: { isActive: false } });
+    await this.audit.log({ entity: 'Location', entityId: id, action: 'DELETE', userId, newValue: { isActive: false } });
+    return updated;
+  }
+
   async getCompanyProfile(companyId: string) {
     return this.prisma.company.findUniqueOrThrow({
       where: { id: companyId },

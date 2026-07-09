@@ -9,6 +9,8 @@ import {
   Query,
   UseGuards,
   Request,
+  HttpCode,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { DealsService } from './deals.service';
@@ -80,15 +82,22 @@ export class DealsController {
 
   @Get(':id')
   @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  findById(@Param('id') id: string) {
-    return this.svc.findById(id);
+  async findById(@Param('id') id: string, @Request() req: any) {
+    const deal = await this.svc.findById(id);
+    // SEC-2: enforce location scope for non-ADMIN per-item access
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role) && deal.locationId !== req.user.locationId) {
+      throw new ForbiddenException('Access to this location is not permitted.');
+    }
+    return deal;
   }
 
   @Post()
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
   create(@Body() body: CreateDealDto, @Request() req: any) {
     const locationId = body.locationId ?? req.user.locationId;
-    return this.svc.create({ ...body, locationId }, req.user.id);
+    // SEC-1: SALES_REP can only create deals for themselves
+    const salesRepId = req.user.role === 'SALES_REP' ? req.user.id : (body.salesRepId ?? req.user.id);
+    return this.svc.create({ ...body, locationId, salesRepId }, req.user.id);
   }
 
   @Patch(':id')
@@ -99,12 +108,14 @@ export class DealsController {
   }
 
   @Post(':id/finalize')
+  @HttpCode(200)
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   finalize(@Param('id') id: string, @Request() req: any) {
     return this.svc.finalize(id, req.user.id);
   }
 
   @Post(':id/cancel')
+  @HttpCode(200)
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   cancel(@Param('id') id: string, @Request() req: any) {
     return this.svc.cancel(id, req.user.id);

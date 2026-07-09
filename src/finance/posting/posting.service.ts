@@ -1,8 +1,9 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { FiscalPeriodService } from '../fiscal-periods/fiscal-period.service';
 import Decimal from 'decimal.js';
-
-const VAT_RATE = 0.14;
 
 /**
  * All GL postings go through this service -- never create JournalEntry rows
@@ -10,7 +11,22 @@ const VAT_RATE = 0.14;
  */
 @Injectable()
 export class PostingService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(PostingService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private auditService: AuditService,
+    private fiscalPeriodService: FiscalPeriodService,
+  ) {}
+
+  // ponytail: L-2 — VAT rate from DB, fallback to 14% if seed missing
+  private async getVatRate(companyId: string): Promise<number> {
+    const tax = await this.prisma.tax.findFirst({
+      where: { name: 'Egypt VAT 14%', scope: 'SALE' },
+      select: { amount: true },
+    });
+    return tax ? Number(tax.amount) / 100 : 0.14;
+  }
 
   // -- FIX C6: Balance validation before every journal entry --
   private assertBalanced(
@@ -25,7 +41,7 @@ export class PostingService {
       new Decimal(0),
     );
     if (!totalDebit.equals(totalCredit)) {
-      throw new Error(
+      throw new BadRequestException(
         `Journal entry is unbalanced: DR ${totalDebit} ≠ CR ${totalCredit}`,
       );
     }
@@ -50,6 +66,10 @@ export class PostingService {
       },
     });
 
+    if (deal.status === 'FINALIZED') {
+      throw new BadRequestException(`Deal ${dealId} is already finalized`);
+    }
+
     // Vehicle has no companyId → get from location.company via journal
     const saleJournal = deal.location.journals.find((j) => j.type === 'SALE');
     const generalJournal = deal.location.journals.find(
@@ -63,7 +83,7 @@ export class PostingService {
 
     const companyId = saleJournal.companyId;
     const now = new Date();
-    await this.assertFiscalPeriodOpen(now, companyId);
+    await this.fiscalPeriodService.assertOpen(now, companyId);
 
     const accounts = await this.resolveAccounts(companyId, [
       '1300',
@@ -82,10 +102,14 @@ export class PostingService {
     const vehicleCost = Number(deal.vehicle.cost ?? 0);
 
     // VAT applies only on salePrice per Egypt spec (admin fee + insurance exempt)
-    const vatAmount = Math.round(salePrice * VAT_RATE * 100) / 100;
+    const vatRate = await this.getVatRate(companyId);
+    const vatAmount = Math.round(salePrice * vatRate * 100) / 100;
     const totalAR = salePrice + vatAmount + adminFee + insuranceFee;
 
     const analyticAccountId = deal.location.analyticAccount?.id;
+
+    // M-14: mutable ref for trade-in vehicle ID (updated inside tx if auto-created)
+    let resolvedTradeInVehicleId = deal.tradeInVehicleId;
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Sale GL entry lines (SALE journal)
@@ -300,13 +324,13 @@ export class PostingService {
           where: { id: dealId },
           data: { tradeInVehicleId: tradeInVehicle.id },
         });
-        // Patch local reference so the 4b block picks it up
-        (deal as any).tradeInVehicleId = tradeInVehicle.id;
+        // Patch mutable ref so the 4b block picks it up
+        resolvedTradeInVehicleId = tradeInVehicle.id;
       }
 
       // 4b. Trade-in vehicle GL entry -- DR Used Vehicle Inventory (1410), CR AR (1300)
       const tradeInValue = Number(deal.tradeInValue ?? 0);
-      if (tradeInValue > 0 && deal.tradeInVehicleId) {
+      if (tradeInValue > 0 && resolvedTradeInVehicleId) {
         const tradeInLines = [
           {
             accountId: accounts['1410'],
@@ -337,7 +361,7 @@ export class PostingService {
         });
         // Mark trade-in vehicle as AVAILABLE (now part of dealership inventory)
         await tx.vehicle.update({
-          where: { id: deal.tradeInVehicleId },
+          where: { id: resolvedTradeInVehicleId! },
           data: { status: 'AVAILABLE' },
         });
         // F-8: Reduce invoice amountResidual by trade-in value
@@ -359,13 +383,33 @@ export class PostingService {
         await this.accrueCommission(
           commission.id,
           userId,
-          tx as any,
+          tx,
           companyId,
           generalJournal.id,
           accounts,
           analyticAccountId,
         );
       }
+    });
+
+    this.logger.log(
+      `finalizeDeal: dealId=${dealId} totalAR=${totalAR} method=${deal.purchaseMethod ?? 'CASH'} vehicleCost=${vehicleCost}`,
+    );
+    // ponytail: fire-and-forget audit — no await needed, non-critical path
+    this.auditService.log({
+      userId,
+      action: 'FINALIZE_DEAL',
+      entityType: 'Deal',
+      entityId: dealId,
+      changes: {
+        salePrice,
+        adminFee,
+        insuranceFee,
+        vatAmount,
+        totalAR,
+        vehicleCost,
+        purchaseMethod: deal.purchaseMethod ?? 'CASH',
+      },
     });
   }
 
@@ -401,7 +445,7 @@ export class PostingService {
 
     const companyId = cashJournal.companyId;
     const now = new Date();
-    await this.assertFiscalPeriodOpen(now, companyId);
+    await this.fiscalPeriodService.assertOpen(now, companyId);
 
     // F-11: Use journal's default debit account instead of hardcoded '1100'
     const cashDebitAccountId = cashJournal.defaultDebitAccountId;
@@ -476,6 +520,10 @@ export class PostingService {
         });
       }
     });
+
+    this.logger.log(
+      `postInstallment: lineId=${installmentLineId} total=${totalDue} principal=${principal} interest=${interest} dueDate=${line.dueDate?.toISOString() ?? 'n/a'}`,
+    );
   }
 
   // -- Bank Financing Disbursement --
@@ -500,7 +548,7 @@ export class PostingService {
 
     const companyId = bankJournal.companyId;
     const now = new Date();
-    await this.assertFiscalPeriodOpen(now, companyId);
+    await this.fiscalPeriodService.assertOpen(now, companyId);
 
     // F-12: Use journal's default debit account instead of hardcoded '1200'
     const bankDebitAccountId = bankJournal.defaultDebitAccountId;
@@ -510,8 +558,9 @@ export class PostingService {
     const analyticAccountId = deal.location.analyticAccount?.id;
 
     const approvedAmount = Number(bankApproval.approvedAmount);
+    const vatRate = await this.getVatRate(companyId);
     const saleTotal =
-      Number(deal.salePrice) * (1 + VAT_RATE) +
+      Number(deal.salePrice) * (1 + vatRate) +
       Number(deal.adminFee ?? 0) +
       Number(deal.insuranceFee ?? 0);
 
@@ -558,6 +607,10 @@ export class PostingService {
         data: { status: 'PAYABLE', payableAt: now },
       });
     });
+
+    this.logger.log(
+      `postBankDisbursement: dealId=${dealId} approved=${approvedAmount} saleTotal=${saleTotal} shortfall=${saleTotal - approvedAmount}`,
+    );
   }
 
   // -- Commission Accrual --
@@ -565,7 +618,7 @@ export class PostingService {
   async accrueCommission(
     dealCommissionId: string,
     userId: string,
-    tx?: any,
+    tx?: Prisma.TransactionClient,
     companyId?: string,
     journalId?: string,
     accounts?: Record<string, string>,
@@ -637,6 +690,21 @@ export class PostingService {
       where: { id: dealCommissionId },
       data: { accrualJournalEntryId: entry.id, accruedAt: now },
     });
+
+    this.logger.log(
+      `accrueCommission: commissionId=${dealCommissionId} amount=${amount} salesRepId=${commission.userId}`,
+    );
+    this.auditService.log({
+      userId,
+      action: 'ACCRUE_COMMISSION',
+      entityType: 'Commission',
+      entityId: dealCommissionId,
+      changes: {
+        calculatedAmount: amount,
+        dealId: commission.dealId,
+        salesRepId: commission.userId,
+      },
+    });
   }
 
   // -- Commission Payout --
@@ -655,7 +723,7 @@ export class PostingService {
     });
     const companyId = journal.companyId;
     const now = new Date();
-    await this.assertFiscalPeriodOpen(now, companyId);
+    await this.fiscalPeriodService.assertOpen(now, companyId);
 
     const commissions = await this.prisma.dealCommission.findMany({
       where: { id: { in: commissionIds }, status: 'PAYABLE' },
@@ -712,6 +780,10 @@ export class PostingService {
         });
       }
     });
+
+    this.logger.log(
+      `payCommission: ids=[${commissionIds.join(',')}] total=${totalPayout} count=${commissions.length}`,
+    );
   }
 
   // -- Commission Clawback --
@@ -719,7 +791,7 @@ export class PostingService {
   async clawbackCommissions(
     dealId: string,
     userId: string,
-    tx?: any,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     const db = tx ?? this.prisma;
 
@@ -798,7 +870,17 @@ export class PostingService {
     if (inv.status !== 'DRAFT')
       throw new BadRequestException('Invoice not in DRAFT state');
 
-    await this.assertFiscalPeriodOpen(inv.date, inv.journal.companyId);
+    // C2/C3 fix: deal invoices already have POSTED GL from finalizeDeal — only flip status.
+    // C3: amountResidual was set to (totalAR - tradeInValue) by finalizeDeal; don't overwrite it.
+    if (inv.dealId) {
+      await this.prisma.invoice.update({
+        where: { id: invoiceId },
+        data: { status: 'POSTED' },
+      });
+      return;
+    }
+
+    await this.fiscalPeriodService.assertOpen(inv.date, inv.journal.companyId);
 
     let taxAmount = 0;
     for (const line of inv.lines) {
@@ -809,11 +891,10 @@ export class PostingService {
 
     const isCustomer =
       inv.type === 'CUSTOMER_INVOICE' || inv.type === 'CUSTOMER_CREDIT_NOTE';
-    const isVendorBill =
-      inv.type === 'VENDOR_BILL' || inv.type === 'VENDOR_CREDIT_NOTE';
     const prefix = isCustomer ? 'INV' : 'BILL';
 
-    let glLines: any[];
+    interface GlLine { accountId: string; debit: number; credit: number; label: string; partnerId?: string }
+    let glLines: GlLine[];
     if (isCustomer) {
       const accounts = await this.resolveAccounts(inv.journal.companyId, [
         '1300',
@@ -909,7 +990,7 @@ export class PostingService {
     });
     if (!inv.journalEntry) throw new BadRequestException('No journal entry found for this invoice');
     const now = new Date();
-    await this.assertFiscalPeriodOpen(now, inv.journal.companyId);
+    await this.fiscalPeriodService.assertOpen(now, inv.journal.companyId);
     const reversalLines = inv.journalEntry!.lines.map((l) => ({
       accountId: l.accountId,
       debit: Number(l.credit),
@@ -943,11 +1024,9 @@ export class PostingService {
     if (p.status !== 'DRAFT')
       throw new BadRequestException('Payment not in DRAFT state');
 
-    await this.assertFiscalPeriodOpen(p.date, p.journal.companyId);
+    await this.fiscalPeriodService.assertOpen(p.date, p.journal.companyId);
 
-    const isInbound =
-      p.type === 'CUSTOMER_PAYMENT' || p.type === 'CUSTOMER_DEPOSIT';
-    let glLines: any[];
+    let glLines: Array<{ accountId: string; debit: number; credit: number; label: string; partnerId?: string }>;
 
     if (p.type === 'CUSTOMER_DEPOSIT') {
       // FIX C8: deposit → DR Bank/Cash / CR Customer Deposits liability (2300)
@@ -1070,41 +1149,6 @@ export class PostingService {
   }
 
   // -- Private Helpers --
-
-  async assertFiscalPeriodOpen(date: Date, companyId: string, userId?: string) {
-    const fiscal = await this.prisma.fiscalYear.findFirst({
-      where: { companyId, startDate: { lte: date }, endDate: { gte: date } },
-    });
-    if (!fiscal)
-      throw new BadRequestException(
-        'No open fiscal year for the posting date.',
-      );
-    if (fiscal.lockDate && date <= fiscal.lockDate) {
-      if (userId) {
-        const override = await this.prisma.userPermission.findFirst({
-          where: {
-            userId,
-            permissionKey: 'finance:lock-override',
-            granted: true,
-          },
-        });
-        if (override) {
-          await this.prisma.auditLog.create({
-            data: {
-              entityType: 'FiscalYear',
-              entityId: fiscal.id,
-              action: 'LOCK_OVERRIDE',
-              userId,
-            },
-          });
-          return; // allowed
-        }
-      }
-      throw new BadRequestException(
-        'Fiscal period is locked. Finance Admin — Lock Override permission required.',
-      );
-    }
-  }
 
   private async resolveAccounts(
     companyId: string,

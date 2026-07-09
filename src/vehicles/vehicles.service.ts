@@ -1,14 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { buildVehicleWhereClause, VehicleFilterParams } from '../common/helpers/vehicle-query.helper';
 
-export interface VehicleFilters {
-  locationId?: string;
-  status?: string;
-  make?: string;
-  bodyType?: string;
-  minPrice?: number;
-  maxPrice?: number;
-  accreditedDealerId?: string;
+export interface VehicleFilters extends VehicleFilterParams {
   page?: number;
   limit?: number;
 }
@@ -18,30 +12,12 @@ export class VehiclesService {
   constructor(private prisma: PrismaService) {}
 
   async findAll(filters: VehicleFilters = {}) {
-    const {
-      page = 1,
-      limit = 20,
-      locationId,
-      status,
-      make,
-      bodyType,
-      minPrice,
-      maxPrice,
-      accreditedDealerId,
-    } = filters;
+    // ponytail: clamp pagination to prevent negative skip / DoS via huge limit
+    const page = Math.max(1, +(filters.page ?? 1) || 1);
+    const limit = Math.min(100, Math.max(1, +(filters.limit ?? 20) || 20));
     const skip = (page - 1) * limit;
 
-    const where: any = {};
-    if (locationId) where.locationId = locationId;
-    if (status) where.status = status;
-    if (make) where.make = { contains: make, mode: 'insensitive' };
-    if (bodyType) where.bodyType = bodyType;
-    if (accreditedDealerId) where.accreditedDealerId = accreditedDealerId;
-    if (minPrice || maxPrice) {
-      where.price = {};
-      if (minPrice) where.price.gte = minPrice;
-      if (maxPrice) where.price.lte = maxPrice;
-    }
+    const where = buildVehicleWhereClause(filters);
 
     const [data, total] = await Promise.all([
       this.prisma.vehicle.findMany({

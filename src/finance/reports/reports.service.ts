@@ -110,88 +110,89 @@ export class ReportsService {
   }
 
   async revenueByMonth(companyId: string, months = 6) {
-    const result: { month: string; revenue: number; expenses: number }[] = [];
+    // ponytail: single raw query replaces 2*N loop
     const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+    const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
+    const rows = await this.prisma.$queryRaw<
+      Array<{ month: string; revenue: string; expenses: string }>
+    >`
+      SELECT
+        TO_CHAR(je.date, 'YYYY-MM') AS month,
+        SUM(CASE WHEN a.type = 'INCOME' THEN jel.credit - jel.debit ELSE 0 END) AS revenue,
+        SUM(CASE WHEN a.type IN ('EXPENSE', 'COST_OF_REVENUE') THEN jel.debit - jel.credit ELSE 0 END) AS expenses
+      FROM "JournalEntryLine" jel
+      JOIN "JournalEntry" je ON je.id = jel."journalEntryId"
+      JOIN "Journal" j ON j.id = je."journalId"
+      JOIN "Account" a ON a.id = jel."accountId"
+      WHERE j."companyId" = ${companyId}
+        AND je.status = 'POSTED'
+        AND je.date >= ${startDate}
+        AND je.date <= ${endDate}
+        AND a.type IN ('INCOME', 'EXPENSE', 'COST_OF_REVENUE')
+      GROUP BY TO_CHAR(je.date, 'YYYY-MM')
+      ORDER BY month
+    `;
+
+    // Build full month list so months with zero activity still appear
+    const monthMap = new Map<string, { revenue: number; expenses: number }>();
+    for (const r of rows) {
+      monthMap.set(r.month, {
+        revenue: Number(r.revenue),
+        expenses: Number(r.expenses),
+      });
+    }
+
+    const result: { month: string; revenue: number; expenses: number }[] = [];
     for (let i = months - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const from = new Date(d.getFullYear(), d.getMonth(), 1);
-      const to = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
-      const monthLabel = from.toLocaleString('en', { month: 'short' });
-
-      const rows = await this.prisma.journalEntryLine.groupBy({
-        by: ['accountId'],
-        where: {
-          account: { companyId, type: { in: ['INCOME', 'EXPENSE', 'COST_OF_REVENUE'] as any[] } },
-          journalEntry: { status: 'POSTED', date: { gte: from, lte: to }, journal: { companyId } },
-        },
-        _sum: { debit: true, credit: true },
-      });
-
-      const accountIds = rows.map((r) => r.accountId);
-      const accs = await this.prisma.account.findMany({
-        where: { id: { in: accountIds } },
-        select: { id: true, type: true },
-      });
-      const accMap = new Map(accs.map((a) => [a.id, a]));
-
-      let revenue = new Decimal(0);
-      let expenses = new Decimal(0);
-      for (const r of rows) {
-        const acc = accMap.get(r.accountId);
-        if (!acc) continue;
-        const credit = new Decimal(r._sum?.credit?.toString() ?? '0');
-        const debit = new Decimal(r._sum?.debit?.toString() ?? '0');
-        if (acc.type === 'INCOME') revenue = revenue.plus(credit.minus(debit));
-        else expenses = expenses.plus(debit.minus(credit));
-      }
-      result.push({ month: monthLabel, revenue: revenue.toNumber(), expenses: expenses.toNumber() });
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleString('en', { month: 'short' });
+      const data = monthMap.get(key) ?? { revenue: 0, expenses: 0 };
+      result.push({ month: label, ...data });
     }
     return { months: result };
   }
 
   async branchProfit(companyId: string) {
-    const locations = await this.prisma.location.findMany({
-      where: { companyId },
-      select: { id: true, name: true },
-    });
-
+    // ponytail: single raw query replaces 2*N loop
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const result: { branch: string; gross: number }[] = [];
-    for (const loc of locations) {
-      const rows = await this.prisma.journalEntryLine.groupBy({
-        by: ['accountId'],
-        where: {
-          account: { companyId, type: { in: ['INCOME', 'COST_OF_REVENUE', 'EXPENSE'] as any[] } },
-          journalEntry: {
-            status: 'POSTED',
-            date: { gte: from },
-            journal: { companyId, locationId: loc.id },
-          },
-        },
-        _sum: { debit: true, credit: true },
-      });
+    const rows = await this.prisma.$queryRaw<
+      Array<{ locationId: string; revenue: string; expenses: string }>
+    >`
+      SELECT
+        j."locationId",
+        SUM(CASE WHEN a.type = 'INCOME' THEN jel.credit - jel.debit ELSE 0 END) AS revenue,
+        SUM(CASE WHEN a.type IN ('EXPENSE', 'COST_OF_REVENUE') THEN jel.debit - jel.credit ELSE 0 END) AS expenses
+      FROM "JournalEntryLine" jel
+      JOIN "JournalEntry" je ON je.id = jel."journalEntryId"
+      JOIN "Journal" j ON j.id = je."journalId"
+      JOIN "Account" a ON a.id = jel."accountId"
+      WHERE j."companyId" = ${companyId}
+        AND je.status = 'POSTED'
+        AND je.date >= ${from}
+        AND j."locationId" IS NOT NULL
+        AND a.type IN ('INCOME', 'EXPENSE', 'COST_OF_REVENUE')
+      GROUP BY j."locationId"
+    `;
 
-      const accountIds = rows.map((r) => r.accountId);
-      const accs = await this.prisma.account.findMany({
-        where: { id: { in: accountIds } },
-        select: { id: true, type: true },
-      });
-      const accMap = new Map(accs.map((a) => [a.id, a]));
+    // Resolve location names
+    const locationIds = rows.map((r) => r.locationId);
+    const locations = locationIds.length
+      ? await this.prisma.location.findMany({
+          where: { id: { in: locationIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const locMap = new Map(locations.map((l) => [l.id, l.name]));
 
-      let gross = new Decimal(0);
-      for (const r of rows) {
-        const acc = accMap.get(r.accountId);
-        if (!acc) continue;
-        const credit = new Decimal(r._sum?.credit?.toString() ?? '0');
-        const debit = new Decimal(r._sum?.debit?.toString() ?? '0');
-        if (acc.type === 'INCOME') gross = gross.plus(credit.minus(debit));
-        else gross = gross.minus(debit.minus(credit));
-      }
-      result.push({ branch: loc.name, gross: gross.toNumber() });
-    }
+    const result = rows.map((r) => ({
+      branch: locMap.get(r.locationId) ?? r.locationId,
+      gross: Number(r.revenue) - Number(r.expenses),
+    }));
     return { branches: result.sort((a, b) => b.gross - a.gross) };
   }
 
@@ -413,9 +414,47 @@ export class ReportsService {
   }
 
   async taxReport(companyId: string, dateFrom: Date, dateTo: Date) {
+    // ponytail: single query replaces 3*N loop
     const taxGroups = await this.prisma.taxGroup.findMany({
-      include: { taxes: { select: { amount: true, accountId: true } } },
+      include: {
+        taxes: {
+          select: {
+            amount: true,
+            accountId: true,
+            account: { select: { id: true, type: true } },
+          },
+        },
+      },
     });
+
+    // Collect all tax account IDs across all groups for one bulk query
+    const allAccountIds = [
+      ...new Set(taxGroups.flatMap((tg) => tg.taxes.map((t) => t.accountId))),
+    ];
+    if (!allAccountIds.length) return [];
+
+    // Single raw query: sum debits/credits per accountId in the period
+    const rows = await this.prisma.$queryRaw<
+      Array<{ accountId: string; totalDebit: string; totalCredit: string }>
+    >`
+      SELECT
+        jel."accountId",
+        SUM(jel.debit)  AS "totalDebit",
+        SUM(jel.credit) AS "totalCredit"
+      FROM "JournalEntryLine" jel
+      JOIN "JournalEntry" je ON je.id = jel."journalEntryId"
+      JOIN "Journal" j ON j.id = je."journalId"
+      WHERE j."companyId" = ${companyId}
+        AND je.status = 'POSTED'
+        AND je.date >= ${dateFrom}
+        AND je.date <= ${dateTo}
+        AND jel."accountId" IN (SELECT unnest(${allAccountIds}::text[]))
+      GROUP BY jel."accountId"
+    `;
+
+    const sumMap = new Map(
+      rows.map((r) => [r.accountId, { debit: new Decimal(r.totalDebit), credit: new Decimal(r.totalCredit) }]),
+    );
 
     const results: {
       taxGroupId: string;
@@ -427,51 +466,24 @@ export class ReportsService {
     }[] = [];
 
     for (const tg of taxGroups) {
-      const accountIds = [...new Set(tg.taxes.map((t) => t.accountId))];
-      if (!accountIds.length) continue;
+      if (!tg.taxes.length) continue;
 
       const avgRate = tg.taxes
-        .reduce(
-          (sum, t) => sum.plus(new Decimal(t.amount.toString())),
-          new Decimal(0),
-        )
+        .reduce((sum, t) => sum.plus(new Decimal(t.amount.toString())), new Decimal(0))
         .div(tg.taxes.length);
 
-      // F-15: Split by account type — LIABILITY = output VAT (collected), ASSET = input VAT (reclaimable)
-      const taxAccounts = await this.prisma.account.findMany({
-        where: { id: { in: accountIds } },
-        select: { id: true, type: true },
-      });
-      const liabilityIds = taxAccounts.filter((a) => a.type === 'LIABILITY').map((a) => a.id);
-      const assetIds = taxAccounts.filter((a) => a.type === 'ASSET').map((a) => a.id);
-      const periodWhere = {
-        journalEntry: {
-          status: 'POSTED' as const,
-          date: { gte: dateFrom, lte: dateTo },
-          journal: { companyId },
-        },
-      };
-
       let taxCollected = new Decimal(0);
-      if (liabilityIds.length) {
-        const r = await this.prisma.journalEntryLine.aggregate({
-          where: { accountId: { in: liabilityIds }, ...periodWhere },
-          _sum: { credit: true, debit: true },
-        });
-        taxCollected = new Decimal(r._sum?.credit?.toString() ?? '0').minus(
-          new Decimal(r._sum?.debit?.toString() ?? '0'),
-        );
-      }
-
       let taxPaid = new Decimal(0);
-      if (assetIds.length) {
-        const r = await this.prisma.journalEntryLine.aggregate({
-          where: { accountId: { in: assetIds }, ...periodWhere },
-          _sum: { debit: true, credit: true },
-        });
-        taxPaid = new Decimal(r._sum?.debit?.toString() ?? '0').minus(
-          new Decimal(r._sum?.credit?.toString() ?? '0'),
-        );
+
+      for (const tax of tg.taxes) {
+        const sums = sumMap.get(tax.accountId);
+        if (!sums) continue;
+        // LIABILITY accounts = output VAT (collected), ASSET accounts = input VAT (reclaimable)
+        if (tax.account.type === 'LIABILITY') {
+          taxCollected = taxCollected.plus(sums.credit.minus(sums.debit));
+        } else if (tax.account.type === 'ASSET') {
+          taxPaid = taxPaid.plus(sums.debit.minus(sums.credit));
+        }
       }
 
       results.push({

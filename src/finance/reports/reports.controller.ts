@@ -133,11 +133,12 @@ export class ReportsController {
   @Get('profit-loss')
   @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN')
   incomeStatementAlias(@Request() req: any, @Query() q: any) {
-    return this.svc.incomeStatement(
-      req.user.companyId,
-      new Date(q.from ?? q.dateFrom),
-      new Date(q.to ?? q.dateTo),
-    );
+    const now = new Date();
+    const rawFrom = q.from ?? q.dateFrom;
+    const rawTo = q.to ?? q.dateTo;
+    const dateFrom = rawFrom ? new Date(rawFrom) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const dateTo = rawTo ? new Date(rawTo) : now;
+    return this.svc.incomeStatement(req.user.companyId, dateFrom, dateTo);
   }
 
   @Get('aged-ar')

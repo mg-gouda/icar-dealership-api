@@ -18,6 +18,14 @@ export class UpdateLocationDto {
   phone?: string;
 
   @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  manager?: string;
+
+  @IsOptional()
   @IsNumber()
   defaultAdminFee?: number;
 

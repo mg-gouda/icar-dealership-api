@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import * as Sentry from '@sentry/nestjs';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -42,6 +43,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (status >= 500) {
       this.logger.error(exception);
+      if (process.env.SENTRY_DSN) {
+        Sentry.captureException(exception);
+      }
     } else if (status >= 400) {
       const userId = (request as any).user?.id ?? 'anonymous';
       this.logger.warn({ ip: request.ip, path: request.url, userId, status });
