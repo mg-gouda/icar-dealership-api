@@ -60,7 +60,15 @@ export class ListPartReturnsQuery {
 
   @IsOptional()
   @IsString()
+  inventoryStatus?: string;
+
+  @IsOptional()
+  @IsString()
   locationId?: string;
+
+  @IsOptional()
+  @IsString()
+  q?: string;
 
   @IsOptional()
   page?: number;

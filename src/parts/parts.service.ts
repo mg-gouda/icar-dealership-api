@@ -241,15 +241,26 @@ export class PartsService {
 
   async listReturns(companyId: string, query: {
     status?: string;
+    inventoryStatus?: string;
     locationId?: string;
+    q?: string;
     page?: number;
     limit?: number;
   }) {
-    const { status, locationId, page = 1, limit = 20 } = query;
+    const { status, inventoryStatus, locationId, q, page = 1, limit = 20 } = query;
     const where: any = {
       companyId,
       ...(status && { status }),
+      ...(inventoryStatus && { inventoryStatus }),
       ...(locationId && { locationId }),
+      ...(q && {
+        OR: [
+          { returnNumber: { contains: q, mode: 'insensitive' } },
+          { customerName: { contains: q, mode: 'insensitive' } },
+          { part: { name: { contains: q, mode: 'insensitive' } } },
+          { part: { partNumber: { contains: q, mode: 'insensitive' } } },
+        ],
+      }),
     };
     const [data, total] = await this.prisma.$transaction([
       this.prisma.partReturn.findMany({
