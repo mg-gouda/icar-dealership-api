@@ -808,7 +808,117 @@ async function main() {
     create: { email: 'khaled@icar.com', passwordHash: staffHash, name: 'Khaled Omar', role: 'MANAGER', locationId: cairoLocation.id, partnerId: managerPartner.id },
   });
 
+  // ── 14. Car Makes & Models ────────────────────────────────────────────────
+  await seedCarMakes(company.id);
+
   console.log('✅  Seeding complete.');
+}
+
+async function seedCarMakes(companyId: string) {
+  const MAKES = [
+    // Japanese
+    { name: 'Toyota', slug: 'toyota', models: ['Corolla', 'Camry', 'RAV4', 'Highlander', 'Land Cruiser', 'Land Cruiser Prado', 'Yaris', 'Fortuner', 'Innova', 'HiAce', 'Hilux', 'Supra', 'C-HR', 'Venza', 'Avalon', 'Crown', 'Prius', 'bZ4X', 'GR86', 'Sequoia', 'Tundra', 'Tacoma', '4Runner', 'FJ Cruiser'] },
+    { name: 'Honda', slug: 'honda', models: ['Civic', 'Accord', 'CR-V', 'HR-V', 'Pilot', 'Ridgeline', 'Odyssey', 'Passport', 'Jazz', 'City', 'Fit', 'Element', 'Insight', 'Breeze', 'ZR-V', 'e:Ny1'] },
+    { name: 'Nissan', slug: 'nissan', models: ['Altima', 'Maxima', 'Sentra', 'Versa', 'Kicks', 'Rogue', 'Pathfinder', 'Frontier', 'Murano', 'Armada', 'GT-R', 'Z', 'X-Trail', 'Qashqai', 'Patrol', 'Navara', 'Terra', 'Leaf', 'Ariya', 'Juke', 'Note', 'Tiida'] },
+    { name: 'Mazda', slug: 'mazda', models: ['Mazda2', 'Mazda3', 'Mazda6', 'CX-3', 'CX-5', 'CX-30', 'CX-50', 'CX-60', 'CX-90', 'MX-5 Miata', 'BT-50', 'MX-30'] },
+    { name: 'Subaru', slug: 'subaru', models: ['Outback', 'Forester', 'Impreza', 'Legacy', 'Crosstrek', 'Ascent', 'BRZ', 'WRX', 'XV', 'Solterra'] },
+    { name: 'Mitsubishi', slug: 'mitsubishi', models: ['Outlander', 'Eclipse Cross', 'ASX', 'Pajero', 'L200 Triton', 'Galant', 'Lancer', 'Mirage', 'Attrage', 'Xpander', 'Montero Sport', 'Colt'] },
+    { name: 'Suzuki', slug: 'suzuki', models: ['Vitara', 'Swift', 'Jimny', 'S-Cross', 'Baleno', 'Grand Vitara', 'Ertiga', 'Dzire', 'Alto', 'Ignis', 'Fronx', 'Brezza', 'XL6', 'Ciaz'] },
+    { name: 'Isuzu', slug: 'isuzu', models: ['D-Max', 'MU-X', 'Trooper', 'Rodeo', 'Bighorn'] },
+    { name: 'Daihatsu', slug: 'daihatsu', models: ['Terios', 'Rocky', 'Sirion', 'Mira', 'Move', 'Taft', 'Xenia'] },
+    { name: 'Lexus', slug: 'lexus', models: ['IS', 'ES', 'GS', 'LS', 'NX', 'RX', 'GX', 'LX', 'UX', 'RC', 'LC', 'RZ', 'TX'] },
+    { name: 'Acura', slug: 'acura', models: ['ILX', 'TLX', 'RLX', 'MDX', 'RDX', 'NSX', 'Integra'] },
+    { name: 'Infiniti', slug: 'infiniti', models: ['Q50', 'Q60', 'QX50', 'QX55', 'QX60', 'QX80'] },
+    // German
+    { name: 'BMW', slug: 'bmw', models: ['1 Series', '2 Series', '3 Series', '4 Series', '5 Series', '6 Series', '7 Series', '8 Series', 'X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X7', 'M2', 'M3', 'M4', 'M5', 'M8', 'Z4', 'i3', 'i4', 'i5', 'i7', 'iX', 'iX1', 'iX3'] },
+    { name: 'Mercedes-Benz', slug: 'mercedes-benz', models: ['A-Class', 'B-Class', 'C-Class', 'E-Class', 'S-Class', 'CLA', 'CLS', 'GLA', 'GLB', 'GLC', 'GLE', 'GLS', 'G-Class', 'AMG GT', 'EQA', 'EQB', 'EQC', 'EQE', 'EQS', 'SL', 'SLC', 'Maybach S-Class', 'Maybach GLS'] },
+    { name: 'Audi', slug: 'audi', models: ['A1', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'Q2', 'Q3', 'Q4 e-tron', 'Q5', 'Q7', 'Q8', 'Q8 e-tron', 'TT', 'R8', 'e-tron GT', 'RS3', 'RS4', 'RS5', 'RS6', 'RS7'] },
+    { name: 'Volkswagen', slug: 'volkswagen', models: ['Golf', 'Passat', 'Jetta', 'Tiguan', 'Atlas', 'Touareg', 'Polo', 'Arteon', 'Taos', 'ID.4', 'ID.3', 'ID.5', 'ID.7', 'T-Roc', 'T-Cross', 'Touran', 'Phaeton', 'Amarok', 'Multivan'] },
+    { name: 'Porsche', slug: 'porsche', models: ['911', 'Cayenne', 'Macan', 'Panamera', 'Taycan', '718 Boxster', '718 Cayman', 'Cayenne E-Hybrid'] },
+    { name: 'Opel', slug: 'opel', models: ['Astra', 'Corsa', 'Insignia', 'Mokka', 'Crossland', 'Grandland', 'Zafira', 'Vectra', 'Omega'] },
+    { name: 'Smart', slug: 'smart', models: ['Fortwo', 'Forfour', '#1', '#3'] },
+    // American
+    { name: 'Ford', slug: 'ford', models: ['F-150', 'F-250', 'F-350', 'Mustang', 'Explorer', 'Escape', 'Edge', 'Expedition', 'Ranger', 'Bronco', 'Bronco Sport', 'Maverick', 'EcoSport', 'Puma', 'Focus', 'Fiesta', 'Fusion', 'Taurus', 'Mustang Mach-E', 'F-150 Lightning', 'Transit', 'Transit Connect'] },
+    { name: 'Chevrolet', slug: 'chevrolet', models: ['Silverado 1500', 'Silverado 2500HD', 'Colorado', 'Camaro', 'Corvette', 'Tahoe', 'Suburban', 'Equinox', 'Trailblazer', 'Blazer', 'Trax', 'Malibu', 'Spark', 'Bolt EV', 'Traverse', 'Impala', 'Captiva', 'Groove', 'Express'] },
+    { name: 'Dodge', slug: 'dodge', models: ['Charger', 'Challenger', 'Durango', 'Journey', 'Dart', 'Grand Caravan', 'Hornet'] },
+    { name: 'Jeep', slug: 'jeep', models: ['Wrangler', 'Grand Cherokee', 'Cherokee', 'Compass', 'Renegade', 'Gladiator', 'Wagoneer', 'Grand Wagoneer', 'Grand Cherokee 4xe', 'Avenger'] },
+    { name: 'Ram', slug: 'ram', models: ['1500', '1500 Classic', '2500', '3500', 'ProMaster', 'ProMaster City'] },
+    { name: 'GMC', slug: 'gmc', models: ['Sierra 1500', 'Sierra 2500HD', 'Canyon', 'Terrain', 'Acadia', 'Yukon', 'Yukon XL', 'Envoy', 'Hummer EV'] },
+    { name: 'Cadillac', slug: 'cadillac', models: ['Escalade', 'Escalade ESV', 'XT4', 'XT5', 'XT6', 'CT4', 'CT5', 'Lyriq', 'Optiq'] },
+    { name: 'Buick', slug: 'buick', models: ['Enclave', 'Encore', 'Encore GX', 'Envision', 'Envista', 'LaCrosse', 'Verano'] },
+    { name: 'Lincoln', slug: 'lincoln', models: ['Navigator', 'Navigator L', 'Aviator', 'Nautilus', 'Corsair', 'Continental'] },
+    { name: 'Tesla', slug: 'tesla', models: ['Model S', 'Model 3', 'Model X', 'Model Y', 'Cybertruck', 'Roadster'] },
+    // Korean
+    { name: 'Hyundai', slug: 'hyundai', models: ['Elantra', 'Sonata', 'Azera', 'Tucson', 'Santa Fe', 'Palisade', 'Kona', 'Venue', 'Ioniq', 'Ioniq 5', 'Ioniq 6', 'Ioniq 9', 'Nexo', 'Santa Cruz', 'Staria', 'Starex', 'i10', 'i20', 'i30', 'Accent', 'Creta', 'Verna'] },
+    { name: 'Kia', slug: 'kia', models: ['Picanto', 'Rio', 'Cerato', 'K5', 'K8', 'Sportage', 'Sorento', 'Telluride', 'Seltos', 'Stonic', 'Niro', 'Carnival', 'EV6', 'EV9', 'Stinger', 'Mohave', 'Soul', 'Cadenza'] },
+    { name: 'Genesis', slug: 'genesis', models: ['G70', 'G80', 'G90', 'GV70', 'GV80', 'GV60', 'Electrified GV70', 'Electrified G80'] },
+    { name: 'SsangYong', slug: 'ssangyong', models: ['Tivoli', 'Korando', 'Rexton', 'Musso', 'Actyon', 'Torres', 'Rexton Sports'] },
+    // British
+    { name: 'Land Rover', slug: 'land-rover', models: ['Defender', 'Discovery', 'Discovery Sport', 'Range Rover', 'Range Rover Sport', 'Range Rover Velar', 'Range Rover Evoque', 'Freelander'] },
+    { name: 'Jaguar', slug: 'jaguar', models: ['XE', 'XF', 'XJ', 'F-Type', 'F-Pace', 'E-Pace', 'I-Pace'] },
+    { name: 'Bentley', slug: 'bentley', models: ['Continental GT', 'Continental GTC', 'Bentayga', 'Flying Spur', 'Mulsanne', 'Bacalar'] },
+    { name: 'Rolls-Royce', slug: 'rolls-royce', models: ['Phantom', 'Ghost', 'Wraith', 'Dawn', 'Cullinan', 'Spectre', 'Silver Shadow'] },
+    { name: 'Aston Martin', slug: 'aston-martin', models: ['DB11', 'DBS', 'Vantage', 'Valkyrie', 'DBX', 'DBX707', 'DB12'] },
+    { name: 'McLaren', slug: 'mclaren', models: ['720S', 'GT', 'Artura', 'Senna', '765LT', 'Speedtail', '750S', 'GTS'] },
+    { name: 'MINI', slug: 'mini', models: ['Cooper', 'Cooper S', 'Countryman', 'Clubman', 'Convertible', 'Paceman', 'JCW', 'Aceman', 'Cooper Electric'] },
+    { name: 'Lotus', slug: 'lotus', models: ['Elise', 'Exige', 'Evija', 'Emira', 'Eletre'] },
+    // Italian
+    { name: 'Ferrari', slug: 'ferrari', models: ['296 GTB', '296 GTS', 'Roma', 'Roma Spider', 'Portofino M', 'SF90 Stradale', 'SF90 Spider', '812 Superfast', 'F8 Tributo', 'F8 Spider', 'GTC4Lusso', 'Purosangue', '488', 'California'] },
+    { name: 'Lamborghini', slug: 'lamborghini', models: ['Huracán', 'Huracán Sterrato', 'Huracán STO', 'Urus', 'Urus S', 'Urus Performante', 'Revuelto', 'Countach LPI 800-4'] },
+    { name: 'Maserati', slug: 'maserati', models: ['Ghibli', 'Quattroporte', 'GranTurismo', 'GranCabrio', 'Levante', 'Grecale', 'MC20', 'MC20 Cielo'] },
+    { name: 'Alfa Romeo', slug: 'alfa-romeo', models: ['Giulia', 'Stelvio', 'Tonale', '4C', 'Spider', 'Giulietta', 'MiTo', 'Brera'] },
+    { name: 'Fiat', slug: 'fiat', models: ['500', '500e', 'Panda', 'Tipo', 'Doblo', 'Punto', '500X', '500L', 'Bravo', 'Stilo', 'Ducato', 'Talento'] },
+    { name: 'Lancia', slug: 'lancia', models: ['Ypsilon', 'Delta', 'Stratos'] },
+    // French
+    { name: 'Peugeot', slug: 'peugeot', models: ['108', '208', '308', '408', '508', '2008', '3008', '5008', 'Partner', 'Expert', 'Landtrek', 'e-208', 'e-2008', 'e-308'] },
+    { name: 'Renault', slug: 'renault', models: ['Clio', 'Megane', 'Captur', 'Arkana', 'Kadjar', 'Koleos', 'Duster', 'Trafic', 'Kangoo', 'Talisman', 'Austral', 'Espace', 'Zoe', 'Megane E-Tech', 'Scenic E-Tech', 'Twingo'] },
+    { name: 'Citroën', slug: 'citroen', models: ['C3', 'C3 Aircross', 'C4', 'C4 X', 'C5 X', 'Berlingo', 'Spacetourer', 'Ami', 'ë-C3', 'ë-Berlingo', 'DS 3 Crossback'] },
+    { name: 'DS Automobiles', slug: 'ds', models: ['DS 3', 'DS 3 Crossback E-Tense', 'DS 4', 'DS 7', 'DS 7 Crossback', 'DS 9'] },
+    // Swedish
+    { name: 'Volvo', slug: 'volvo', models: ['S60', 'S90', 'V60', 'V90', 'XC40', 'XC60', 'XC90', 'C40 Recharge', 'EX30', 'EX40', 'EX90', 'EC40'] },
+    // Spanish / Czech / Romanian
+    { name: 'SEAT', slug: 'seat', models: ['Ibiza', 'Leon', 'Ateca', 'Arona', 'Tarraco', 'Mii', 'Alhambra'] },
+    { name: 'Cupra', slug: 'cupra', models: ['Formentor', 'Born', 'Ateca', 'Leon', 'Terramar', 'Tavascan'] },
+    { name: 'Škoda', slug: 'skoda', models: ['Fabia', 'Octavia', 'Superb', 'Kamiq', 'Karoq', 'Kodiaq', 'Enyaq', 'Rapid', 'Scala', 'Citigo'] },
+    { name: 'Dacia', slug: 'dacia', models: ['Sandero', 'Sandero Stepway', 'Logan', 'Duster', 'Spring', 'Jogger', 'Lodgy', 'Bigster'] },
+    // Chinese
+    { name: 'BYD', slug: 'byd', models: ['Seal', 'Atto 3', 'Dolphin', 'Tang', 'Han', 'Song Plus', 'Song Pro', 'Yuan Plus', 'Qin Plus', 'Destroyer 05', 'Sea Lion 6', 'Sea Lion 7', 'Seagull', 'Sealion U'] },
+    { name: 'MG', slug: 'mg', models: ['MG3', 'MG5', 'MG6', 'ZS', 'ZS EV', 'RX5', 'HS', 'GS', 'Gloster', 'EP', 'Cyberster', 'One', 'Marvel R', 'Mulan', '4 Electric'] },
+    { name: 'Chery', slug: 'chery', models: ['Tiggo 4 Pro', 'Tiggo 7 Pro', 'Tiggo 8 Pro', 'Arrizo 5', 'Arrizo 6', 'Arrizo 8', 'Omoda 5', 'Omoda C5', 'Jaecoo 7'] },
+    { name: 'Haval', slug: 'haval', models: ['H2', 'H4', 'H6', 'H9', 'F5', 'F7', 'Jolion', 'Raptor', 'Dargo', 'Big Dog'] },
+    { name: 'Geely', slug: 'geely', models: ['Coolray', 'Okavango', 'Azkarra', 'Preface', 'Xingyue', 'Emgrand', 'GX3 Pro', 'Tugella', 'Monjaro'] },
+    { name: 'GAC', slug: 'gac', models: ['GS3', 'GS4', 'GS5', 'GS8', 'GA4', 'GA6', 'Aion S', 'Aion Y', 'Aion V', 'Trumpchi'] },
+    { name: 'NIO', slug: 'nio', models: ['ET5', 'ET5T', 'ET7', 'ES6', 'ES7', 'ES8', 'EC6', 'EC7', 'EL6', 'EL7'] },
+    { name: 'Xpeng', slug: 'xpeng', models: ['P7', 'G3i', 'P5', 'G9', 'G6', 'X9', 'MONA M03'] },
+    // Indian
+    { name: 'Tata', slug: 'tata', models: ['Nexon', 'Harrier', 'Safari', 'Tiago', 'Altroz', 'Punch', 'Tigor', 'Nexon EV', 'Punch EV', 'Curvv'] },
+    { name: 'Mahindra', slug: 'mahindra', models: ['Scorpio', 'Scorpio-N', 'XUV700', 'XUV300', 'XUV400', 'Thar', 'Bolero', 'BE 6', 'XEV 9e', 'XUV 3XO'] },
+    // Other
+    { name: 'Saab', slug: 'saab', models: ['9-3', '9-5', '9-4X', '9-7X', '9-2X'] },
+    { name: 'Daewoo', slug: 'daewoo', models: ['Lanos', 'Nubira', 'Leganza', 'Matiz', 'Kalos', 'Lacetti', 'Magnus'] },
+    { name: 'Rivian', slug: 'rivian', models: ['R1T', 'R1S', 'R2', 'R3'] },
+    { name: 'Lucid', slug: 'lucid', models: ['Air Pure', 'Air Touring', 'Air Grand Touring', 'Air Sapphire', 'Gravity'] },
+    { name: 'Polestar', slug: 'polestar', models: ['1', '2', '3', '4', '5', '6'] },
+  ];
+
+  console.log('  Seeding car makes and models...');
+  for (const makeData of MAKES) {
+    const { models, ...makeFields } = makeData;
+    const logoUrl = `https://cdn.jsdelivr.net/npm/car-logos-dataset@2.2.0/src/${makeFields.slug}/logo.png`;
+    const make = await prisma.carMake.upsert({
+      where: { companyId_name: { companyId, name: makeFields.name } },
+      update: { logoUrl, slug: makeFields.slug },
+      create: { name: makeFields.name, slug: makeFields.slug, logoUrl, companyId },
+    });
+    for (const modelName of models) {
+      await prisma.carModel.upsert({
+        where: { makeId_name: { makeId: make.id, name: modelName } },
+        update: {},
+        create: { name: modelName, makeId: make.id },
+      });
+    }
+  }
+  console.log('  Car makes and models seeded.');
 }
 
 main()

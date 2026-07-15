@@ -279,11 +279,11 @@ export class PartsService {
     return { data, total, page: Number(page), limit: Number(limit) };
   }
 
-  async createReturn(companyId: string, dto: CreatePartReturnDto) {
+  async createReturn(companyId: string, dto: CreatePartReturnDto, userId: string) {
     await this.prisma.part.findUniqueOrThrow({ where: { id: dto.partId } });
     const returnNumber = await this.generateSequence('RETN', 'partReturn');
 
-    return this.prisma.partReturn.create({
+    const ret = await this.prisma.partReturn.create({
       data: {
         returnNumber,
         partId: dto.partId,
@@ -299,6 +299,8 @@ export class PartsService {
         companyId,
       },
     });
+    await this.audit.log({ entity: 'PartReturn', entityId: ret.id, action: 'CREATE', userId, newValue: ret });
+    return ret;
   }
 
   async getReturn(companyId: string, id: string) {
@@ -342,31 +344,38 @@ export class PartsService {
       }
 
       return updated;
+    }).then(async (updated) => {
+      await this.audit.log({ entity: 'PartReturn', entityId: id, action: 'APPROVE', userId: approverId, newValue: { status: 'APPROVED', inventoryStatus } });
+      return updated;
     });
   }
 
-  async rejectReturn(companyId: string, id: string, rejectionReason: string) {
+  async rejectReturn(companyId: string, id: string, rejectionReason: string, userId: string) {
     const ret = await this.prisma.partReturn.findFirst({
       where: { id, companyId, status: 'PENDING_APPROVAL' },
     });
     if (!ret) throw new NotFoundException(`Pending PartReturn ${id} not found`);
 
-    return this.prisma.partReturn.update({
+    const updated = await this.prisma.partReturn.update({
       where: { id },
       data: { status: 'REJECTED', rejectionReason },
     });
+    await this.audit.log({ entity: 'PartReturn', entityId: id, action: 'REJECT', userId, newValue: { rejectionReason } });
+    return updated;
   }
 
-  async completeReturn(companyId: string, id: string) {
+  async completeReturn(companyId: string, id: string, userId: string) {
     const ret = await this.prisma.partReturn.findFirst({
       where: { id, companyId, status: 'APPROVED' },
     });
     if (!ret) throw new NotFoundException(`Approved PartReturn ${id} not found`);
 
-    return this.prisma.partReturn.update({
+    const updated = await this.prisma.partReturn.update({
       where: { id },
       data: { status: 'COMPLETED' },
     });
+    await this.audit.log({ entity: 'PartReturn', entityId: id, action: 'COMPLETE', userId, newValue: { status: 'COMPLETED' } });
+    return updated;
   }
 
   // ---------------------------------------------------------------------------
@@ -401,44 +410,58 @@ export class PartsService {
     return { data, total, page: Number(page), limit: Number(limit) };
   }
 
-  async createRMA(companyId: string, dto: CreateRMADto) {
-    // Validate all partReturns are APPROVED + in QUARANTINE
+  async createRMA(companyId: string, dto: CreateRMADto, userId: string) {
+    // Validate all partReturns are APPROVED + in QUARANTINE (not yet in an RMA)
     const returns = await this.prisma.partReturn.findMany({
       where: {
         id: { in: dto.partReturnIds },
         companyId,
         status: 'APPROVED',
         inventoryStatus: 'QUARANTINE',
+        rmaLines: { none: {} },
       },
       include: { part: { select: { id: true, costPrice: true } } },
     });
 
     if (returns.length !== dto.partReturnIds.length) {
       throw new BadRequestException(
-        'All part returns must be APPROVED with QUARANTINE inventory status',
+        'All part returns must be APPROVED with QUARANTINE inventory status and not already assigned to an RMA',
       );
     }
 
     const rmaNumber = await this.generateSequence('RMA', 'manufacturerRMA');
 
-    return this.prisma.manufacturerRMA.create({
-      data: {
-        rmaNumber,
-        supplierId: dto.supplierId,
-        locationId: dto.locationId,
-        companyId,
-        notes: dto.notes,
-        lines: {
-          create: returns.map((r) => ({
-            partReturnId: r.id,
-            partId: r.partId,
-            qty: r.qty,
-            unitCost: r.part.costPrice,
-          })),
+    const rma = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.manufacturerRMA.create({
+        data: {
+          rmaNumber,
+          supplierId: dto.supplierId,
+          locationId: dto.locationId,
+          companyId,
+          notes: dto.notes,
+          lines: {
+            create: returns.map((r) => ({
+              partReturnId: r.id,
+              partId: r.partId,
+              qty: r.qty,
+              unitCost: r.part.costPrice,
+            })),
+          },
         },
-      },
-      include: { lines: true },
+        include: { lines: true },
+      });
+
+      // Mark included part returns as IN_RMA so they're excluded from future batches
+      await tx.partReturn.updateMany({
+        where: { id: { in: dto.partReturnIds } },
+        data: { inventoryStatus: 'IN_RMA' },
+      });
+
+      return created;
     });
+
+    await this.audit.log({ entity: 'ManufacturerRMA', entityId: rma.id, action: 'CREATE', userId, newValue: { rmaNumber, lineCount: returns.length } });
+    return rma;
   }
 
   async getRMA(companyId: string, id: string) {
@@ -458,37 +481,41 @@ export class PartsService {
     return rma;
   }
 
-  async submitRMA(companyId: string, id: string) {
+  async submitRMA(companyId: string, id: string, userId: string) {
     const rma = await this.prisma.manufacturerRMA.findFirst({
       where: { id, companyId, status: 'DRAFT' },
     });
     if (!rma) throw new NotFoundException(`Draft RMA ${id} not found`);
 
-    return this.prisma.manufacturerRMA.update({
+    const updated = await this.prisma.manufacturerRMA.update({
       where: { id },
       data: { status: 'SUBMITTED', submittedAt: new Date() },
     });
+    await this.audit.log({ entity: 'ManufacturerRMA', entityId: id, action: 'SUBMIT', userId, newValue: { status: 'SUBMITTED' } });
+    return updated;
   }
 
-  async markRMASent(companyId: string, id: string) {
+  async markRMASent(companyId: string, id: string, userId: string) {
     const rma = await this.prisma.manufacturerRMA.findFirst({
       where: { id, companyId, status: 'SUBMITTED' },
     });
     if (!rma) throw new NotFoundException(`Submitted RMA ${id} not found`);
 
-    return this.prisma.manufacturerRMA.update({
+    const updated = await this.prisma.manufacturerRMA.update({
       where: { id },
       data: { status: 'SENT_WITH_ORDER', sentAt: new Date() },
     });
+    await this.audit.log({ entity: 'ManufacturerRMA', entityId: id, action: 'MARK_SENT', userId, newValue: { status: 'SENT_WITH_ORDER' } });
+    return updated;
   }
 
-  async resolveRMA(companyId: string, id: string, dto: ResolveRMADto) {
+  async resolveRMA(companyId: string, id: string, dto: ResolveRMADto, userId: string) {
     const rma = await this.prisma.manufacturerRMA.findFirst({
       where: { id, companyId, status: 'SENT_WITH_ORDER' },
     });
     if (!rma) throw new NotFoundException(`Sent RMA ${id} not found`);
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.manufacturerRMA.update({
         where: { id },
         data: {
@@ -518,6 +545,9 @@ export class PartsService {
 
       return updated;
     });
+
+    await this.audit.log({ entity: 'ManufacturerRMA', entityId: id, action: 'RESOLVE', userId, newValue: { resolutionType: dto.resolutionType, resolutionAmount: dto.resolutionAmount } });
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -563,11 +593,15 @@ export class PartsService {
     return cn;
   }
 
-  async applyCredit(companyId: string, id: string, dto: ApplyCreditDto) {
+  async applyCredit(companyId: string, id: string, dto: ApplyCreditDto, userId: string) {
     const cn = await this.prisma.supplierCreditNote.findFirst({
       where: { id, companyId },
     });
     if (!cn) throw new NotFoundException(`SupplierCreditNote ${id} not found`);
+
+    if (cn.expiryDate && cn.expiryDate < new Date()) {
+      throw new BadRequestException('Credit note has expired and cannot be applied');
+    }
 
     const remaining = new Decimal(cn.totalAmount).minus(new Decimal(cn.usedAmount));
     if (new Decimal(dto.amountUsed).greaterThan(remaining)) {
@@ -576,7 +610,7 @@ export class PartsService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       await tx.creditNoteUsage.create({
         data: {
           creditNoteId: id,
@@ -591,5 +625,8 @@ export class PartsService {
         data: { usedAmount: { increment: dto.amountUsed } },
       });
     });
+
+    await this.audit.log({ entity: 'SupplierCreditNote', entityId: id, action: 'APPLY_CREDIT', userId, newValue: { amountUsed: dto.amountUsed, purchaseOrderRef: dto.purchaseOrderRef } });
+    return updated;
   }
 }

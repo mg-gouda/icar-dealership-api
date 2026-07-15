@@ -312,6 +312,7 @@ model Company {
   partReturns         PartReturn[]         @relation("PartReturnCompany")
   manufacturerRMAs    ManufacturerRMA[]    @relation("RMACompany")
   supplierCreditNotes SupplierCreditNote[] @relation("SupplierCreditCompany")
+  carMakes            CarMake[]            @relation("CompanyCarMakes")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -493,6 +494,10 @@ model Vehicle {
   vin                String?           @unique
   make               String
   model              String
+  carMakeId          String?
+  carMake            CarMake?  @relation("VehicleCarMake", fields: [carMakeId], references: [id])
+  carModelId         String?
+  carModel           CarModel? @relation("VehicleCarModel", fields: [carModelId], references: [id])
   year               Int
   trim               String?
   mileage            Int?
@@ -1927,6 +1932,41 @@ model AccreditedDealer {
 }
 
 // ---------------------------------------------------------------------------
+// Car Makes & Models
+// ---------------------------------------------------------------------------
+
+model CarMake {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String
+  logoUrl   String?
+  isActive  Boolean    @default(true)
+  companyId String
+  company   Company    @relation("CompanyCarMakes", fields: [companyId], references: [id])
+  models    CarModel[]
+  vehicles  Vehicle[]  @relation("VehicleCarMake")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model CarModel {
+  id        String    @id @default(cuid())
+  name      String
+  makeId    String
+  make      CarMake   @relation(fields: [makeId], references: [id])
+  isActive  Boolean   @default(true)
+  vehicles  Vehicle[] @relation("VehicleCarModel")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([makeId, name])
+  @@index([makeId])
+}
+
+// ---------------------------------------------------------------------------
 // Login Attempt Tracking (DB-backed lockout for PM2 cluster mode)
 // ---------------------------------------------------------------------------
 
@@ -1970,6 +2010,7 @@ enum PartRefundMethod {
 enum InventoryReturnStatus {
   RETURNED_TO_STOCK
   QUARANTINE
+  IN_RMA
 }
 
 enum RMAStatus {
@@ -2056,8 +2097,8 @@ model RMALine {
   unitCost     Decimal         @db.Decimal(14, 2)
   createdAt    DateTime        @default(now())
 
+  @@unique([partReturnId])
   @@index([rmaId])
-  @@index([partReturnId])
 }
 
 model SupplierCreditNote {

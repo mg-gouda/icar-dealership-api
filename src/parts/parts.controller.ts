@@ -53,7 +53,7 @@ export class PartsController {
   @Post('returns')
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
   createReturn(@Body() dto: CreatePartReturnDto, @Request() req: any) {
-    return this.svc.createReturn(req.user.companyId, dto);
+    return this.svc.createReturn(req.user.companyId, dto, req.user.id);
   }
 
   @Get('returns/:id')
@@ -75,13 +75,13 @@ export class PartsController {
     @Body() dto: RejectPartReturnDto,
     @Request() req: any,
   ) {
-    return this.svc.rejectReturn(req.user.companyId, id, dto.rejectionReason);
+    return this.svc.rejectReturn(req.user.companyId, id, dto.rejectionReason, req.user.id);
   }
 
   @Patch('returns/:id/complete')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   completeReturn(@Param('id') id: string, @Request() req: any) {
-    return this.svc.completeReturn(req.user.companyId, id);
+    return this.svc.completeReturn(req.user.companyId, id, req.user.id);
   }
 
   // ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ export class PartsController {
   @Post('rmas')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   createRMA(@Body() dto: CreateRMADto, @Request() req: any) {
-    return this.svc.createRMA(req.user.companyId, dto);
+    return this.svc.createRMA(req.user.companyId, dto, req.user.id);
   }
 
   @Get('rmas/:id')
@@ -109,13 +109,13 @@ export class PartsController {
   @Patch('rmas/:id/submit')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   submitRMA(@Param('id') id: string, @Request() req: any) {
-    return this.svc.submitRMA(req.user.companyId, id);
+    return this.svc.submitRMA(req.user.companyId, id, req.user.id);
   }
 
   @Patch('rmas/:id/sent')
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   markRMASent(@Param('id') id: string, @Request() req: any) {
-    return this.svc.markRMASent(req.user.companyId, id);
+    return this.svc.markRMASent(req.user.companyId, id, req.user.id);
   }
 
   @Post('rmas/:id/resolve')
@@ -125,7 +125,7 @@ export class PartsController {
     @Body() dto: ResolveRMADto,
     @Request() req: any,
   ) {
-    return this.svc.resolveRMA(req.user.companyId, id, dto);
+    return this.svc.resolveRMA(req.user.companyId, id, dto, req.user.id);
   }
 
   // ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ export class PartsController {
     @Body() dto: ApplyCreditDto,
     @Request() req: any,
   ) {
-    return this.svc.applyCredit(req.user.companyId, id, dto);
+    return this.svc.applyCredit(req.user.companyId, id, dto, req.user.id);
   }
 
   // ---------------------------------------------------------------------------
