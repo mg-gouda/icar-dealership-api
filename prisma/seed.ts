@@ -883,6 +883,8 @@ async function seedCarMakes(companyId: string) {
     { name: 'Dacia', slug: 'dacia', models: ['Sandero', 'Sandero Stepway', 'Logan', 'Duster', 'Spring', 'Jogger', 'Lodgy', 'Bigster'] },
     // Chinese
     { name: 'BYD', slug: 'byd', models: ['Seal', 'Atto 3', 'Dolphin', 'Tang', 'Han', 'Song Plus', 'Song Pro', 'Yuan Plus', 'Qin Plus', 'Destroyer 05', 'Sea Lion 6', 'Sea Lion 7', 'Seagull', 'Sealion U'] },
+    { name: 'Dongfeng', slug: 'dongfeng', models: ['Fengshen AX4', 'Fengshen AX5', 'Fengshen AX7', 'Fengshen AX7 Pro', 'Fengshen ix5', 'Fengshen ix7', 'Aeolus E70', 'Aeolus A60', 'Aeolus A9', 'H30 Cross', 'S30', 'Fengxing T5', 'Fengxing T7', 'Fengxing CM7', 'Box'] },
+    { name: 'Jaylong', slug: 'jaylong', models: ['T7', 'T9', 'S70', 'S80', 'X5', 'X7', 'Pro 5', 'Pro 7', 'EV5', 'EV7'] },
     { name: 'MG', slug: 'mg', models: ['MG3', 'MG5', 'MG6', 'ZS', 'ZS EV', 'RX5', 'HS', 'GS', 'Gloster', 'EP', 'Cyberster', 'One', 'Marvel R', 'Mulan', '4 Electric'] },
     { name: 'Chery', slug: 'chery', models: ['Tiggo 4 Pro', 'Tiggo 7 Pro', 'Tiggo 8 Pro', 'Arrizo 5', 'Arrizo 6', 'Arrizo 8', 'Omoda 5', 'Omoda C5', 'Jaecoo 7'] },
     { name: 'Haval', slug: 'haval', models: ['H2', 'H4', 'H6', 'H9', 'F5', 'F7', 'Jolion', 'Raptor', 'Dargo', 'Big Dog'] },

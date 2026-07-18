@@ -116,9 +116,17 @@ export class LocationsService {
     }>,
     userId: string,
   ) {
+    const clean: typeof data = { ...data };
+    if (clean.fiscalYearStartMonth != null)
+      clean.fiscalYearStartMonth = Number(clean.fiscalYearStartMonth);
+    if (clean.adminFeeBoundsPercent != null)
+      clean.adminFeeBoundsPercent = Number(clean.adminFeeBoundsPercent);
+    if (clean.insuranceFeeBoundsPercent != null)
+      clean.insuranceFeeBoundsPercent = Number(clean.insuranceFeeBoundsPercent);
+
     const company = await this.prisma.company.update({
       where: { id: companyId },
-      data,
+      data: clean,
     });
     await this.audit.log({
       entity: 'Company',

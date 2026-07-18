@@ -22,15 +22,24 @@ export class PartsService {
     category?: string;
     supplierId?: string;
     lowStock?: string;
+    q?: string;
     page?: number;
     limit?: number;
   }) {
-    const { locationId, category, supplierId, lowStock, page = 1, limit = 20 } = query;
+    const { locationId, category, supplierId, lowStock, q, page = 1, limit = 20 } = query;
     const where: any = {
       isActive: true,
       ...(locationId && { locationId }),
       ...(category && { category }),
       ...(supplierId && { supplierId }),
+      ...(q && {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { partNumber: { contains: q, mode: 'insensitive' } },
+          { oemNumber: { contains: q, mode: 'insensitive' } },
+          { barcodeValue: { contains: q, mode: 'insensitive' } },
+        ],
+      }),
     };
 
     if (lowStock === 'true') {

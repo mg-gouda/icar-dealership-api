@@ -19,7 +19,9 @@ import { DealsModule } from './deals/deals.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { CommissionsModule } from './commissions/commissions.module';
 import { CommissionPlansModule } from './commission-plans/commission-plans.module';
+import { CommissionConfigModule } from './commission-config/commission-config.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
+import { ChequesModule } from './cheques/cheques.module';
 import { PartnersModule } from './partners/partners.module';
 import { AuditModule } from './audit/audit.module';
 
@@ -92,7 +94,9 @@ import { AccreditedDealersModule } from './accredited-dealers/accredited-dealers
     AppointmentsModule,
     CommissionsModule,
     CommissionPlansModule,
+    CommissionConfigModule,
     PurchaseOrdersModule,
+    ChequesModule,
     PartnersModule,
     ServiceCenterModule,
     PartsModule,

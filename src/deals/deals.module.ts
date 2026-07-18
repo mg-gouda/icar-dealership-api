@@ -4,9 +4,10 @@ import { DealsController } from './deals.controller';
 import { PrismaModule } from '../common/prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { PostingModule } from '../finance/posting/posting.module';
+import { CommissionConfigModule } from '../commission-config/commission-config.module';
 
 @Module({
-  imports: [PrismaModule, AuditModule, PostingModule],
+  imports: [PrismaModule, AuditModule, PostingModule, CommissionConfigModule],
   providers: [DealsService],
   controllers: [DealsController],
   exports: [DealsService],

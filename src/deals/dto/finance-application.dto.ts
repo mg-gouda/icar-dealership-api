@@ -150,16 +150,6 @@ export class AddCommissionSplitDto {
 
   @IsString()
   roleInDeal: string;
-
-  @IsOptional()
-  @IsString()
-  commissionPlanId?: string;
-
-  @IsNumber()
-  baseAmount: number;
-
-  @IsNumber()
-  splitPercentage: number;
 }
 
 export class BulkDealActionDto {

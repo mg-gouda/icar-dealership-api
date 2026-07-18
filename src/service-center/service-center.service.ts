@@ -22,26 +22,79 @@ export class ServiceCenterService {
     return `SO-${ym}-${rand}`;
   }
 
+  // ── External Vehicle CRUD ──────────────────────────────────────────────────
+
+  async searchExternalVehicle(companyId: string, licensePlate: string) {
+    return this.prisma.externalVehicle.findUnique({
+      where: { companyId_licensePlate: { companyId, licensePlate: licensePlate.trim().toUpperCase() } },
+      include: { serviceOrders: { select: { id: true, orderNumber: true, status: true, type: true, createdAt: true, totalAmount: true }, orderBy: { createdAt: 'desc' } } },
+    });
+  }
+
+  async listExternalVehicles(companyId: string, q?: string) {
+    const where: any = { companyId };
+    if (q) where.OR = [
+      { licensePlate: { contains: q, mode: 'insensitive' } },
+      { ownerName: { contains: q, mode: 'insensitive' } },
+      { ownerPhone: { contains: q, mode: 'insensitive' } },
+      { make: { contains: q, mode: 'insensitive' } },
+    ];
+    return this.prisma.externalVehicle.findMany({
+      where,
+      include: { _count: { select: { serviceOrders: true } } },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  async createExternalVehicle(companyId: string, data: {
+    licensePlate: string; make: string; model: string;
+    color?: string; year?: number; regNumber?: string;
+    ownerName: string; ownerPhone: string;
+  }) {
+    return this.prisma.externalVehicle.create({
+      data: { ...data, licensePlate: data.licensePlate.trim().toUpperCase(), companyId },
+    });
+  }
+
+  async updateExternalVehicle(id: string, data: Partial<{
+    make: string; model: string; color: string; year: number;
+    regNumber: string; ownerName: string; ownerPhone: string;
+  }>) {
+    return this.prisma.externalVehicle.update({ where: { id }, data });
+  }
+
+  // ── Service Orders ─────────────────────────────────────────────────────────
+
   async findAll(query: {
     locationId?: string;
     status?: string;
     vehicleId?: string;
     technicianId?: string;
+    q?: string;
     page?: number;
     limit?: number;
   }) {
-    const { locationId, status, vehicleId, technicianId, page = 1, limit = 20 } = query;
-    const where = {
+    const { locationId, status, vehicleId, technicianId, q, page = 1, limit = 20 } = query;
+    const where: any = {
       ...(locationId && { locationId }),
       ...(status && { status: status as any }),
       ...(vehicleId && { vehicleId }),
       ...(technicianId && { technicianId }),
     };
+    if (q) where.OR = [
+      { orderNumber: { contains: q, mode: 'insensitive' } },
+      { vehicle: { make: { contains: q, mode: 'insensitive' } } },
+      { externalVehicle: { licensePlate: { contains: q, mode: 'insensitive' } } },
+      { externalVehicle: { ownerName: { contains: q, mode: 'insensitive' } } },
+      { walkInCustomerName: { contains: q, mode: 'insensitive' } },
+    ];
     const [data, total] = await this.prisma.$transaction([
       this.prisma.serviceOrder.findMany({
         where,
         include: {
-          vehicle: { select: { id: true, make: true, model: true, year: true } },
+          vehicle: { select: { id: true, make: true, model: true, year: true, regLicenseNumber: true } },
+          externalVehicle: { select: { id: true, licensePlate: true, make: true, model: true, year: true, ownerName: true, ownerPhone: true } },
           customer: { select: { id: true, name: true, phone: true } },
           technician: { select: { id: true, name: true } },
           location: { select: { id: true, name: true } },
@@ -60,6 +113,7 @@ export class ServiceCenterService {
       where: { id },
       include: {
         vehicle: true,
+        externalVehicle: { include: { serviceOrders: { select: { id: true, orderNumber: true, status: true, createdAt: true, totalAmount: true }, orderBy: { createdAt: 'desc' }, take: 10 } } },
         customer: true,
         technician: { select: { id: true, name: true } },
         location: true,
@@ -76,8 +130,13 @@ export class ServiceCenterService {
 
   async create(
     data: {
-      vehicleId: string;
+      // inventory vehicle OR external
+      vehicleId?: string;
+      externalVehicleId?: string;
+      // CRM customer OR walk-in
       customerId?: string;
+      walkInCustomerName?: string;
+      walkInCustomerPhone?: string;
       locationId: string;
       technicianId?: string;
       type?: string;
@@ -88,17 +147,23 @@ export class ServiceCenterService {
     },
     userId: string,
   ) {
+    if (!data.vehicleId && !data.externalVehicleId)
+      throw new BadRequestException('Either vehicleId or externalVehicleId is required');
+
     const order = await this.prisma.serviceOrder.create({
       data: {
         orderNumber: this.generateOrderNumber(),
-        vehicleId: data.vehicleId,
-        customerId: data.customerId,
+        vehicleId: data.vehicleId ?? null,
+        externalVehicleId: data.externalVehicleId ?? null,
+        customerId: data.customerId ?? null,
+        walkInCustomerName: data.walkInCustomerName ?? null,
+        walkInCustomerPhone: data.walkInCustomerPhone ?? null,
         locationId: data.locationId,
-        technicianId: data.technicianId,
+        technicianId: data.technicianId ?? null,
         type: (data.type as any) ?? 'MAINTENANCE',
-        mileageIn: data.mileageIn,
-        description: data.description,
-        internalNotes: data.internalNotes,
+        mileageIn: data.mileageIn ? Number(data.mileageIn) : null,
+        description: data.description ?? null,
+        internalNotes: data.internalNotes ?? null,
         companyId: data.companyId,
         status: 'INTAKE',
       },
@@ -167,13 +232,25 @@ export class ServiceCenterService {
     let unitPrice = lineData.unitPrice ?? 0;
 
     // ponytail: auto-resolve price from Part if type=PART and partId supplied
-    if (lineData.type === 'PART' && lineData.partId && !lineData.unitPrice) {
-      const part = await this.prisma.part.findUniqueOrThrow({ where: { id: lineData.partId } });
-      unitPrice = Number(part.salePrice);
+    let part: any = null;
+    if (lineData.type === 'PART' && lineData.partId) {
+      part = await this.prisma.part.findUniqueOrThrow({ where: { id: lineData.partId } });
+      if (!lineData.unitPrice) unitPrice = Number(part.salePrice);
     }
 
     const qty = lineData.quantity ?? 1;
     const total = qty * unitPrice;
+
+    // ponytail: stock check before creating PART line
+    if (lineData.type === 'PART' && part) {
+      if (new Decimal(part.onHand).lessThan(new Decimal(qty))) {
+        throw new BadRequestException(
+          `Insufficient stock: only ${part.onHand} units on hand`,
+        );
+      }
+    }
+
+    const isPart = lineData.type === 'PART' && lineData.partId;
 
     const result = await this.prisma.$transaction(async (tx) => {
       const line = await tx.serviceOrderLine.create({
@@ -185,8 +262,17 @@ export class ServiceCenterService {
           unitPrice,
           total,
           partId: lineData.partId,
+          ...(isPart && { partPickStatus: 'PENDING' }),
         },
       });
+
+      // ponytail: deduct onHand inside same tx
+      if (isPart) {
+        await tx.part.update({
+          where: { id: lineData.partId },
+          data: { onHand: { decrement: qty } },
+        });
+      }
 
       // Recompute parent totals
       const allLines = await tx.serviceOrderLine.findMany({ where: { serviceOrderId: orderId } });
@@ -230,6 +316,18 @@ export class ServiceCenterService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // ponytail: restore stock + cancel pick if PART line
+      if (line.type === 'PART' && line.partId) {
+        await tx.part.update({
+          where: { id: line.partId },
+          data: { onHand: { increment: Number(line.quantity) } },
+        });
+        await tx.serviceOrderLine.update({
+          where: { id: lineId },
+          data: { partPickStatus: 'CANCELLED' },
+        });
+      }
+
       await tx.serviceOrderLine.delete({ where: { id: lineId } });
 
       const remaining = await tx.serviceOrderLine.findMany({ where: { serviceOrderId: orderId } });
@@ -296,8 +394,12 @@ export class ServiceCenterService {
     if (order.invoiceId) {
       throw new BadRequestException('Order already has an invoice');
     }
+    if (!order.customerId && !order.walkInCustomerName) {
+      throw new BadRequestException('Order has no customer — set a CRM customer or walk-in customer name before invoicing');
+    }
+    // Walk-in orders without a CRM customer cannot be formally invoiced yet
     if (!order.customerId) {
-      throw new BadRequestException('Order has no customer — cannot create invoice');
+      throw new BadRequestException('Walk-in service orders must have a CRM customer linked before invoicing. Link or create a customer first.');
     }
 
     const saleJournal = order.location.journals.find((j) => j.type === 'SALE');
@@ -357,5 +459,77 @@ export class ServiceCenterService {
       newValue: { invoiceId: result.id },
     });
     return result;
+  }
+
+  // ── Part Pick Requests ─────────────────────────────────────────────────────
+
+  async listPartPicks(query: { locationId?: string; status?: string }) {
+    return this.prisma.serviceOrderLine.findMany({
+      where: {
+        type: 'PART',
+        ...(query.status
+          ? { partPickStatus: query.status as any }
+          : { partPickStatus: 'PENDING' }),
+        ...(query.locationId && {
+          serviceOrder: { locationId: query.locationId },
+        }),
+      },
+      include: {
+        part: {
+          select: { id: true, partNumber: true, name: true, onHand: true },
+        },
+        serviceOrder: {
+          select: {
+            id: true,
+            orderNumber: true,
+            status: true,
+            locationId: true,
+            location: { select: { name: true } },
+            vehicle: {
+              select: { make: true, model: true, year: true },
+            },
+            externalVehicle: {
+              select: { make: true, model: true, licensePlate: true },
+            },
+            walkInCustomerName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+  }
+
+  async markPartPicked(lineId: string, userId: string) {
+    const line = await this.prisma.serviceOrderLine.findUniqueOrThrow({
+      where: { id: lineId },
+    });
+    if (line.type !== 'PART')
+      throw new BadRequestException('Not a part line');
+    if (line.partPickStatus !== 'PENDING')
+      throw new BadRequestException(
+        `Cannot mark as picked — current status: ${line.partPickStatus}`,
+      );
+    return this.prisma.serviceOrderLine.update({
+      where: { id: lineId },
+      data: {
+        partPickStatus: 'PICKED',
+        partPickedAt: new Date(),
+        partPickedById: userId,
+      },
+    });
+  }
+
+  async countPendingPicks(locationId?: string) {
+    const pending = await this.prisma.serviceOrderLine.count({
+      where: {
+        type: 'PART',
+        partPickStatus: 'PENDING',
+        ...(locationId && {
+          serviceOrder: { locationId },
+        }),
+      },
+    });
+    return { pending };
   }
 }

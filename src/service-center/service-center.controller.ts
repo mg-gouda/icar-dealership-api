@@ -23,6 +23,56 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 export class ServiceCenterController {
   constructor(private svc: ServiceCenterService) {}
 
+  // ── External Vehicles ──────────────────────────────────────────────────────
+
+  @Get('external-vehicles')
+  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  listExternalVehicles(@Request() req: any, @Query('q') q?: string) {
+    return this.svc.listExternalVehicles(req.user.companyId, q);
+  }
+
+  @Get('external-vehicles/by-plate')
+  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  findByPlate(@Request() req: any, @Query('plate') plate: string) {
+    return this.svc.searchExternalVehicle(req.user.companyId, plate);
+  }
+
+  @Post('external-vehicles')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  createExternal(@Request() req: any, @Body() body: any) {
+    return this.svc.createExternalVehicle(req.user.companyId, body);
+  }
+
+  @Patch('external-vehicles/:id')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  updateExternal(@Param('id') id: string, @Body() body: any) {
+    return this.svc.updateExternalVehicle(id, body);
+  }
+
+  // ── Part Pick Requests (static routes — must precede :id) ───────────────
+
+  @Get('part-picks/count')
+  countPendingPicks(@Query('locationId') locationId?: string) {
+    return this.svc.countPendingPicks(locationId);
+  }
+
+  @Get('part-picks')
+  @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  listPartPicks(
+    @Query('locationId') locationId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.svc.listPartPicks({ locationId, status });
+  }
+
+  @Patch('part-picks/:lineId/picked')
+  @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  markPartPicked(@Param('lineId') lineId: string, @Request() req: any) {
+    return this.svc.markPartPicked(lineId, req.user.id);
+  }
+
+  // ── Service Orders ─────────────────────────────────────────────────────────
+
   @Get()
   @Roles('MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   findAll(@Query() q: any) {
@@ -38,7 +88,7 @@ export class ServiceCenterController {
   @Post()
   @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   create(@Body() body: any, @Request() req: any) {
-    return this.svc.create(body, req.user.id);
+    return this.svc.create({ ...body, companyId: req.user.companyId }, req.user.id);
   }
 
   @Patch(':id')

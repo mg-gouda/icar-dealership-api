@@ -32,6 +32,12 @@ enum VehicleStatus {
   SOLD
 }
 
+enum VehicleOwnershipType {
+  OWNED
+  CONSIGNMENT
+  THIRD_PARTY_SALE
+}
+
 enum LeadStatus {
   NEW
   CONTACTED
@@ -246,6 +252,12 @@ enum ServiceLineType {
   SUBLET
 }
 
+enum PartPickStatus {
+  PENDING
+  PICKED
+  CANCELLED
+}
+
 enum MessageDirection {
   INBOUND
   OUTBOUND
@@ -309,10 +321,13 @@ model Company {
   whtCategories       WhtCategory[]        @relation("WhtCategoryCompany")
   lookupItems         LookupItem[]         @relation("LookupItemCompany")
   accreditedDealers   AccreditedDealer[]   @relation("AccreditedDealerCompany")
+  commissionConfig    CommissionConfig?
   partReturns         PartReturn[]         @relation("PartReturnCompany")
   manufacturerRMAs    ManufacturerRMA[]    @relation("RMACompany")
   supplierCreditNotes SupplierCreditNote[] @relation("SupplierCreditCompany")
   carMakes            CarMake[]            @relation("CompanyCarMakes")
+  cheques             Cheque[]             @relation("CompanyCheques")
+  externalVehicles    ExternalVehicle[]    @relation("CompanyExternalVehicles")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -366,6 +381,7 @@ model Location {
   partReturns         PartReturn[]         @relation("PartReturnLocation")
   manufacturerRMAs    ManufacturerRMA[]    @relation("RMALocation")
   supplierCreditNotes SupplierCreditNote[] @relation("SupplierCreditLocation")
+  cheques             Cheque[]             @relation("LocationCheques")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -411,6 +427,7 @@ model User {
   lockedFiscalPeriods  FiscalPeriod[]     @relation("FiscalPeriodLockedBy")
   dealNotes            DealNote[]         @relation("DealNoteAuthor")
   partReturnApprovals  PartReturn[]       @relation("PartReturnApprover")
+  pickedLines          ServiceOrderLine[] @relation("LinePickedBy")
 
   totpSecret       String?
   totpEnabled      Boolean   @default(false)
@@ -484,6 +501,7 @@ model Partner {
   whatsAppMessages    WhatsAppMessage[]    @relation("CustomerWhatsApp")
   manufacturerRMAs    ManufacturerRMA[]    @relation("RMASupplier")
   supplierCreditNotes SupplierCreditNote[] @relation("SupplierCreditNotes")
+  cheques             Cheque[]             @relation("PartnerCheques")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -508,6 +526,7 @@ model Vehicle {
   location           Location          @relation(fields: [locationId], references: [id])
   accreditedDealerId String?
   accreditedDealer   AccreditedDealer? @relation(fields: [accreditedDealerId], references: [id])
+  ownershipType      VehicleOwnershipType @default(OWNED)
   bodyType           String?
   fuelType           String?
   transmission       String?
@@ -540,6 +559,8 @@ model Vehicle {
   overprice           Decimal? @db.Decimal(14, 2)
   acquisitionCost     Decimal? @db.Decimal(14, 2)
   salePrice           Decimal? @db.Decimal(14, 2)
+
+  ourProfit            Decimal? @db.Decimal(14, 2)
 
   // Egypt-specific: overrides Location default fees for this specific vehicle
   adminFeeOverride     Decimal? @db.Decimal(14, 2)
@@ -1057,6 +1078,7 @@ model JournalEntry {
   commissionPayoutFor  DealCommission? @relation("CommissionPayout")
 
   pettyCashVouchers PettyCashVoucher[]
+  cheque            Cheque?           @relation("ChequeJournalEntry")
 
   lines JournalEntryLine[]
 
@@ -1146,6 +1168,7 @@ model Invoice {
   paymentAllocations PaymentAllocation[]
   assets             Asset[]
   serviceOrders      ServiceOrder[]
+  chequeAllocations  ChequeAllocation[]  @relation("InvoiceChequeAllocations")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1300,6 +1323,7 @@ model BankAccount {
 
   journal    Journal?
   statements BankStatement[]
+  cheques    Cheque[]        @relation("BankAccountCheques")
 }
 
 model BankStatement {
@@ -1409,10 +1433,12 @@ model PurchaseOrder {
 
   orderDate    DateTime  @default(now())
   expectedDate DateTime?
-  total        Decimal   @default(0) @db.Decimal(14, 2)
+  total           Decimal  @default(0) @db.Decimal(14, 2)
+  depositRequired Decimal? @db.Decimal(14, 2)
 
-  lines    PurchaseOrderLine[]
-  receipts Receipt[]
+  lines             PurchaseOrderLine[]
+  receipts          Receipt[]
+  chequeAllocations ChequeAllocation[]  @relation("POChequeAllocations")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1571,6 +1597,9 @@ model DealCommission {
 
   status CommissionStatus @default(ACCRUED)
 
+  // Which tier threshold (% of target) triggered the bonus amount; null = base amount used
+  tierPctApplied Decimal? @db.Decimal(5, 2)
+
   // DR Sales Commission Expense / CR Commissions Payable — posted at Deal finalize
   accrualJournalEntryId String?       @unique
   accrualJournalEntry   JournalEntry? @relation("CommissionAccrual", fields: [accrualJournalEntryId], references: [id])
@@ -1588,6 +1617,31 @@ model DealCommission {
 
   @@index([userId, status])
   @@index([dealId])
+}
+
+// ---------------------------------------------------------------------------
+// Commission Config — global fixed-amount commission system
+// ---------------------------------------------------------------------------
+
+model CommissionConfig {
+  id         String               @id @default(cuid())
+  companyId  String               @unique
+  company    Company              @relation(fields: [companyId], references: [id])
+  baseAmount Decimal              @db.Decimal(14, 2)
+  tiers      CommissionConfigTier[]
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+}
+
+model CommissionConfigTier {
+  id           String           @id @default(cuid())
+  configId     String
+  config       CommissionConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  minTargetPct Decimal          @db.Decimal(5, 2)
+  amount       Decimal          @db.Decimal(14, 2)
+  label        String?
+
+  @@index([configId, minTargetPct])
 }
 
 model AuditLog {
@@ -1612,13 +1666,40 @@ model AuditLog {
 // Service Center / Workshop
 // ---------------------------------------------------------------------------
 
+model ExternalVehicle {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation("CompanyExternalVehicles", fields: [companyId], references: [id])
+  licensePlate String
+  make         String
+  model        String
+  color        String?
+  year         Int?
+  regNumber    String?
+  ownerName    String
+  ownerPhone   String
+
+  serviceOrders ServiceOrder[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, licensePlate])
+  @@index([companyId])
+  @@index([ownerPhone])
+}
+
 model ServiceOrder {
-  id            String             @id @default(cuid())
-  orderNumber   String             @unique
-  vehicleId     String
-  vehicle       Vehicle            @relation(fields: [vehicleId], references: [id])
-  customerId    String?
-  customer      Partner?           @relation(fields: [customerId], references: [id])
+  id                String             @id @default(cuid())
+  orderNumber       String             @unique
+  vehicleId         String?
+  vehicle           Vehicle?           @relation(fields: [vehicleId], references: [id])
+  externalVehicleId String?
+  externalVehicle   ExternalVehicle?   @relation(fields: [externalVehicleId], references: [id])
+  customerId        String?
+  customer          Partner?           @relation(fields: [customerId], references: [id])
+  walkInCustomerName  String?
+  walkInCustomerPhone String?
   locationId    String
   location      Location           @relation(fields: [locationId], references: [id])
   technicianId  String?
@@ -1646,6 +1727,7 @@ model ServiceOrder {
 
   @@index([locationId, status])
   @@index([vehicleId])
+  @@index([externalVehicleId])
   @@index([customerId])
   @@index([dealId])
 }
@@ -1661,9 +1743,16 @@ model ServiceOrderLine {
   total          Decimal         @db.Decimal(14, 2)
   partId         String?
   part           Part?           @relation(fields: [partId], references: [id])
+
+  partPickStatus  PartPickStatus?
+  partPickedAt    DateTime?
+  partPickedById  String?
+  partPickedBy    User?           @relation("LinePickedBy", fields: [partPickedById], references: [id])
+
   createdAt      DateTime        @default(now())
 
   @@index([serviceOrderId])
+  @@index([partPickStatus])
 }
 
 // ---------------------------------------------------------------------------
@@ -1919,6 +2008,9 @@ model AccreditedDealer {
   targetBonus     Decimal @default(0) @db.Decimal(14, 2) // EGP bonus if target met
   kickbackPercent Decimal @default(0) @db.Decimal(5, 2) // % of dealer price per car
 
+  // Agent commission override for deals sourced from this dealer
+  agentCommissionOverride Decimal? @db.Decimal(14, 2)
+
   active    Boolean @default(true)
   companyId String
   company   Company @relation("AccreditedDealerCompany", fields: [companyId], references: [id])
@@ -2134,4 +2226,79 @@ model CreditNoteUsage {
   notes            String?
 
   @@index([creditNoteId])
+}
+
+// ── Cheque Register ───────────────────────────────────────────────────────────
+
+model Cheque {
+  id           String         @id @default(cuid())
+  companyId    String
+  company      Company        @relation("CompanyCheques", fields: [companyId], references: [id])
+  locationId   String
+  location     Location       @relation("LocationCheques", fields: [locationId], references: [id])
+
+  chequeNumber String
+  direction    ChequeDirection
+  amount       Decimal        @db.Decimal(14, 2)
+  currency     String         @default("EGP")
+
+  bankAccountId String
+  bankAccount   BankAccount    @relation("BankAccountCheques", fields: [bankAccountId], references: [id])
+
+  partnerId  String?
+  partner    Partner?        @relation("PartnerCheques", fields: [partnerId], references: [id])
+  payeePayor String
+
+  issueDate   DateTime
+  dueDate     DateTime?
+  clearedDate DateTime?
+
+  status ChequeStatus @default(ISSUED)
+  memo   String?
+
+  allocations    ChequeAllocation[]
+
+  journalEntryId String?      @unique
+  journalEntry   JournalEntry? @relation("ChequeJournalEntry", fields: [journalEntryId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, status])
+  @@index([companyId, chequeNumber])
+  @@index([locationId])
+  @@index([partnerId])
+}
+
+model ChequeAllocation {
+  id       String  @id @default(cuid())
+  chequeId String
+  cheque   Cheque  @relation(fields: [chequeId], references: [id])
+
+  amount Decimal @db.Decimal(14, 2)
+
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation("POChequeAllocations", fields: [purchaseOrderId], references: [id])
+
+  invoiceId String?
+  invoice   Invoice? @relation("InvoiceChequeAllocations", fields: [invoiceId], references: [id])
+
+  memo      String?
+  createdAt DateTime @default(now())
+
+  @@index([chequeId])
+  @@index([purchaseOrderId])
+  @@index([invoiceId])
+}
+
+enum ChequeDirection {
+  OUTGOING
+  INCOMING
+}
+
+enum ChequeStatus {
+  ISSUED
+  CLEARED
+  BOUNCED
+  CANCELLED
 }

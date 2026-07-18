@@ -1,5 +1,5 @@
 import { IsString, IsOptional, IsEnum, IsNumber, IsArray, IsBoolean, IsDateString } from 'class-validator';
-import { VehicleStatus } from '@prisma/client';
+import { VehicleStatus, VehicleOwnershipType } from '@prisma/client';
 
 export class CreateVehicleDto {
   @IsString()
@@ -162,6 +162,14 @@ export class CreateVehicleDto {
   salePrice?: number;
 
   @IsOptional()
+  @IsNumber()
+  ourProfit?: number;
+
+  @IsOptional()
   @IsString()
   accreditedDealerId?: string;
+
+  @IsOptional()
+  @IsEnum(VehicleOwnershipType)
+  ownershipType?: VehicleOwnershipType;
 }

@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Res,
+  Redirect,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -93,7 +94,6 @@ export class UploadController {
   @Get('files/:filename')
   @Roles('CUSTOMER', 'SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
-    // Prevent path traversal
     const safeName = basename(filename);
     const filePath = join(uploadDir(), safeName);
 
@@ -101,6 +101,8 @@ export class UploadController {
       throw new NotFoundException('File not found');
     }
 
+    // Allow cross-origin image display (helmet sets same-origin by default)
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.sendFile(filePath);
   }
 }

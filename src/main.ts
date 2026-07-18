@@ -6,6 +6,8 @@ import * as Sentry from '@sentry/nestjs';
 import { Logger } from 'nestjs-pino';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import { join, basename } from 'path';
+import { existsSync, mkdirSync } from 'fs';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -71,7 +73,17 @@ async function bootstrap() {
     next();
   });
 
-  // ponytail: static serving removed — files served via authenticated UploadsController
+  // ponytail: redirect legacy /uploads/:filename → authenticated endpoint
+  // Old DB records store URLs as /uploads/<name>; redirect so images still display
+  const uploadsDir = process.env.UPLOAD_DIR ?? join(process.cwd(), 'uploads');
+  if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });
+  app.use('/uploads', (req: any, res: any) => {
+    const safeName = basename(req.path);
+    const filePath = join(uploadsDir, safeName);
+    if (!existsSync(filePath)) return res.status(404).send('Not found');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.sendFile(filePath);
+  });
 
   // API versioning
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });

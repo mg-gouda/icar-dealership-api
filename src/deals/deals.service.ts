@@ -8,6 +8,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../finance/posting/posting.service';
 import { MailService } from '../common/mail/mail.service';
+import { CommissionConfigService } from '../commission-config/commission-config.service';
 
 @Injectable()
 export class DealsService {
@@ -16,6 +17,7 @@ export class DealsService {
     private audit: AuditService,
     private posting: PostingService,
     private mail: MailService,
+    private commissionConfig: CommissionConfigService,
   ) {}
 
   // ponytail: structured installment statement for a deal
@@ -765,112 +767,49 @@ export class DealsService {
 
   // ── Commission splits ─────────────────────────────────────────────────────
 
-  private async resolveCommissionAmount(
-    baseAmount: number,
-    splitPercentage: number,
-    commissionPlanId?: string,
-    repUserId?: string,
-  ): Promise<number> {
-    if (!commissionPlanId) return (baseAmount * splitPercentage) / 100;
-
-    const plan = await this.prisma.commissionPlan.findUnique({
-      where: { id: commissionPlanId },
-      include: { tiers: { orderBy: { minValue: 'asc' } } },
-    });
-    if (!plan) return (baseAmount * splitPercentage) / 100;
-
-    let planRate = 0;
-    if (plan.basisType === 'FLAT_AMOUNT') {
-      planRate = Number(plan.flatAmount ?? 0);
-      return (planRate * splitPercentage) / 100;
-    }
-    if (
-      plan.basisType === 'PERCENT_OF_SALE_PRICE' ||
-      plan.basisType === 'PERCENT_OF_GROSS_PROFIT'
-    ) {
-      planRate = Number(plan.percentage ?? 0);
-      return (((baseAmount * planRate) / 100) * splitPercentage) / 100;
-    }
-    if (plan.basisType === 'TIERED') {
-      // ponytail: cumulative volume = sum of rep's FINALIZED deal salePrices this calendar month
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthEnd = new Date(
-        now.getFullYear(),
-        now.getMonth() + 1,
-        0,
-        23,
-        59,
-        59,
-      );
-
-      let cumulativeVolume = baseAmount;
-      if (repUserId) {
-        const repDeals = await this.prisma.deal.findMany({
-          where: {
-            status: 'FINALIZED',
-            commissions: { some: { userId: repUserId } },
-            updatedAt: { gte: monthStart, lte: monthEnd },
-          },
-          select: { salePrice: true },
-        });
-        cumulativeVolume =
-          repDeals.reduce((s, d) => s + Number(d.salePrice), 0) + baseAmount;
-      }
-
-      const applicableTier = [...plan.tiers]
-        .reverse()
-        .find((t) => cumulativeVolume >= Number(t.minValue));
-      if (!applicableTier) return 0;
-      const tierBase =
-        applicableTier.rateType === 'FLAT_AMOUNT'
-          ? Number(applicableTier.rateValue)
-          : (baseAmount * Number(applicableTier.rateValue)) / 100;
-      return (tierBase * splitPercentage) / 100;
-    }
-    return (baseAmount * splitPercentage) / 100;
-  }
-
   async addCommissionSplit(
     dealId: string,
     data: {
       userId: string;
       roleInDeal: string;
-      commissionPlanId?: string;
-      baseAmount: number;
-      splitPercentage: number;
     },
     userId: string,
   ) {
     const deal = await this.prisma.deal.findUniqueOrThrow({
-      where: { id: dealId },
+      where: { id: dealId, },
+      include: {
+        location: { select: { companyId: true } },
+        vehicle: { select: { accreditedDealerId: true } },
+      },
     });
     if (deal.status === 'FINALIZED')
       throw new BadRequestException(
         'Cannot modify commissions on a finalized deal',
       );
 
-    const calculatedAmount = await this.resolveCommissionAmount(
-      data.baseAmount,
-      data.splitPercentage,
-      data.commissionPlanId,
-      data.userId,
-    );
+    const now = new Date();
+    const periodStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const { amount, tierPctApplied } = await this.commissionConfig.resolveAmount({
+      companyId: deal.location.companyId,
+      salesRepUserId: data.userId,
+      accreditedDealerId: deal.vehicle?.accreditedDealerId,
+      periodStr,
+    });
 
     const commission = await this.prisma.dealCommission.create({
       data: {
         dealId,
         userId: data.userId,
         roleInDeal: data.roleInDeal,
-        commissionPlanId: data.commissionPlanId,
-        baseAmount: data.baseAmount,
-        splitPercentage: data.splitPercentage,
-        calculatedAmount,
+        baseAmount: amount,
+        splitPercentage: 100,
+        calculatedAmount: amount,
+        tierPctApplied: tierPctApplied ?? undefined,
         status: 'ACCRUED',
       },
       include: {
         user: { select: { id: true, name: true } },
-        commissionPlan: { select: { name: true } },
       },
     });
 
