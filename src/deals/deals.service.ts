@@ -639,8 +639,9 @@ export class DealsService {
         where: { id: dealId },
         data: { purchaseMethod: 'BANK_FINANCING' },
       });
-      return tx.financeApplication.create({
-        data: {
+      return tx.financeApplication.upsert({
+        where: { dealId },
+        create: {
           dealId,
           applicantInfo: data.applicantInfo ?? {},
           creditScoreRange: data.creditScoreRange,
@@ -658,6 +659,16 @@ export class DealsService {
                 })),
               }
             : undefined,
+        },
+        update: {
+          applicantInfo: data.applicantInfo ?? {},
+          creditScoreRange: data.creditScoreRange,
+          lenderName: data.lenderName,
+          bankName: data.bankName,
+          bankBranch: data.bankBranch,
+          termMonths: data.termMonths ? Number(data.termMonths) : undefined,
+          apr: data.apr,
+          monthlyPayment: data.monthlyPayment,
         },
         include: { requiredDocuments: true, bankApproval: true },
       });
@@ -703,17 +714,24 @@ export class DealsService {
     docId: string,
     data: { status?: string; fileUrl?: string; notes?: string },
   ) {
-    const app = await this.prisma.financeApplication.findUniqueOrThrow({
+    const app = await this.prisma.financeApplication.findUnique({
       where: { dealId },
     });
-    return this.prisma.bankFinancingDocument.update({
+    if (!app) throw new NotFoundException(`No finance application for deal ${dealId}`);
+
+    const doc = await this.prisma.bankFinancingDocument.findFirst({
       where: { id: docId, financeApplicationId: app.id },
-      data: {
-        status: data.status as any,
-        fileUrl: data.fileUrl,
-        notes: data.notes,
-        uploadedAt: data.fileUrl ? new Date() : undefined,
-      },
+    });
+    if (!doc) throw new NotFoundException(`Document ${docId} not found`);
+
+    const updateData: Record<string, any> = {};
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.fileUrl !== undefined) { updateData.fileUrl = data.fileUrl; updateData.uploadedAt = new Date(); }
+    if (data.notes !== undefined) updateData.notes = data.notes;
+
+    return this.prisma.bankFinancingDocument.update({
+      where: { id: docId },
+      data: updateData,
     });
   }
 

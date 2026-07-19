@@ -73,17 +73,19 @@ async function bootstrap() {
     next();
   });
 
-  // ponytail: redirect legacy /uploads/:filename → authenticated endpoint
-  // Old DB records store URLs as /uploads/<name>; redirect so images still display
+  // ponytail: static file serving before auth guards — img tags can't send JWT
   const uploadsDir = process.env.UPLOAD_DIR ?? join(process.cwd(), 'uploads');
   if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });
-  app.use('/uploads', (req: any, res: any) => {
+  const serveUpload = (req: any, res: any) => {
     const safeName = basename(req.path);
     const filePath = join(uploadsDir, safeName);
     if (!existsSync(filePath)) return res.status(404).send('Not found');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.sendFile(filePath);
-  });
+  };
+  app.use('/uploads', serveUpload);
+  // Also serve at the versioned API path so stored URLs (api/v1/upload/files/*) work from <img> tags
+  app.use('/api/v1/upload/files', serveUpload);
 
   // API versioning
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
