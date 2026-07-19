@@ -633,35 +633,34 @@ export class DealsService {
   // ── Finance Application ────────────────────────────────────────────────────
 
   async createFinanceApplication(dealId: string, data: any) {
-    const deal = await this.prisma.deal.findUniqueOrThrow({
-      where: { id: dealId },
-    });
-    if (deal.purchaseMethod !== 'BANK_FINANCING') {
-      throw new Error(
-        'Finance applications only apply to BANK_FINANCING deals',
-      );
-    }
-    return this.prisma.financeApplication.create({
-      data: {
-        dealId,
-        applicantInfo: data.applicantInfo ?? {},
-        creditScoreRange: data.creditScoreRange,
-        lenderName: data.lenderName,
-        bankName: data.bankName,
-        bankBranch: data.bankBranch,
-        termMonths: data.termMonths ? Number(data.termMonths) : undefined,
-        apr: data.apr,
-        monthlyPayment: data.monthlyPayment,
-        requiredDocuments: data.documents?.length
-          ? {
-              create: data.documents.map((d: any) => ({
-                documentType: d.documentType,
-                notes: d.notes,
-              })),
-            }
-          : undefined,
-      },
-      include: { requiredDocuments: true, bankApproval: true },
+    return this.prisma.$transaction(async (tx) => {
+      // Auto-switch deal to BANK_FINANCING if not already set
+      await tx.deal.update({
+        where: { id: dealId },
+        data: { purchaseMethod: 'BANK_FINANCING' },
+      });
+      return tx.financeApplication.create({
+        data: {
+          dealId,
+          applicantInfo: data.applicantInfo ?? {},
+          creditScoreRange: data.creditScoreRange,
+          lenderName: data.lenderName,
+          bankName: data.bankName,
+          bankBranch: data.bankBranch,
+          termMonths: data.termMonths ? Number(data.termMonths) : undefined,
+          apr: data.apr,
+          monthlyPayment: data.monthlyPayment,
+          requiredDocuments: data.documents?.length
+            ? {
+                create: data.documents.map((d: any) => ({
+                  documentType: d.documentType,
+                  notes: d.notes,
+                })),
+              }
+            : undefined,
+        },
+        include: { requiredDocuments: true, bankApproval: true },
+      });
     });
   }
 
