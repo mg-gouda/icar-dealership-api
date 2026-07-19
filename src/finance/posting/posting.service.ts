@@ -574,19 +574,15 @@ export class PostingService {
       Number(deal.adminFee ?? 0) +
       Number(deal.insuranceFee ?? 0);
 
-    // FIX C7: overage → reject; shortfall → only credit AR for approvedAmount (remaining AR stays open)
-    if (approvedAmount > saleTotal) {
-      throw new BadRequestException(
-        'Bank disbursement overage requires manual finance review. Reduce the approved amount to match the invoice total or contact finance.',
-      );
-    }
+    // Cap disbursement at saleTotal — overage stays in customer account, not part of deal
+    const disbursementAmount = Math.min(approvedAmount, saleTotal);
 
-    // Per spec 06: DR Bank approvedAmount / CR AR approvedAmount
-    // Shortfall (saleTotal - approvedAmount) remains as open AR for customer to pay
+    // Per spec 06: DR Bank disbursementAmount / CR AR disbursementAmount
+    // Shortfall (saleTotal - disbursementAmount) remains as open AR for customer to pay
     const lines = [
       {
         accountId: bankDebitAccountId,
-        debit: approvedAmount,
+        debit: disbursementAmount,
         credit: 0,
         label: 'Bank disbursement received',
         analyticAccountId,
@@ -594,8 +590,8 @@ export class PostingService {
       {
         accountId: accounts['1300'],
         debit: 0,
-        credit: approvedAmount,
-        label: `Clear AR — bank disbursement${approvedAmount < saleTotal ? ' (partial — shortfall remains on AR)' : ''}`,
+        credit: disbursementAmount,
+        label: `Clear AR — bank disbursement${disbursementAmount < saleTotal ? ' (partial — shortfall remains on AR)' : ''}`,
         analyticAccountId,
       },
     ];
@@ -619,7 +615,7 @@ export class PostingService {
     });
 
     this.logger.log(
-      `postBankDisbursement: dealId=${dealId} approved=${approvedAmount} saleTotal=${saleTotal} shortfall=${saleTotal - approvedAmount}`,
+      `postBankDisbursement: dealId=${dealId} approved=${approvedAmount} disbursed=${disbursementAmount} saleTotal=${saleTotal} shortfall=${saleTotal - disbursementAmount}`,
     );
   }
 
