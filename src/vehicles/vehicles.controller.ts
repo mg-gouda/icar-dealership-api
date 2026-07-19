@@ -116,14 +116,38 @@ export class VehiclesController {
     return this.vehiclesService.bulkImport(body.csv);
   }
 
-  // ponytail: VIN decode stub — returns null until VIN decoder API key is configured
-  @Post(':id/decode-vin')
+  @Get('decode-vin')
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  decodeVin(@Param('id') id: string, @Body('vin') vin: string) {
-    return {
-      vin: vin ?? null,
-      decoded: null,
-      message: 'VIN decoder API key not yet configured',
-    };
+  async decodeVin(@Query('vin') vin: string) {
+    if (!vin || vin.length !== 17) return { error: 'VIN must be 17 characters' };
+    try {
+      const res = await fetch(
+        `https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${encodeURIComponent(vin)}?format=json`,
+        { signal: AbortSignal.timeout(8000) },
+      );
+      const json = await res.json() as any;
+      const r = json?.Results?.[0];
+      if (!r) return { vin, decoded: null };
+      return {
+        vin,
+        decoded: {
+          make:         r.Make         || null,
+          model:        r.Model        || null,
+          year:         r.ModelYear    ? +r.ModelYear : null,
+          trim:         r.Trim         || null,
+          bodyType:     r.BodyClass    || null,
+          engineSize:   r.DisplacementL ? `${r.DisplacementL}L` : null,
+          cylinders:    r.EngineCylinders || null,
+          fuelType:     r.FuelTypePrimary || null,
+          transmission: r.TransmissionStyle || null,
+          driveType:    r.DriveType    || null,
+          doors:        r.Doors        ? +r.Doors : null,
+          plant:        r.PlantCountry || null,
+          errors:       r.ErrorText    || null,
+        },
+      };
+    } catch {
+      return { vin, decoded: null, error: 'NHTSA API unreachable' };
+    }
   }
 }
