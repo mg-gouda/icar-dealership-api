@@ -303,6 +303,8 @@ model Company {
   // Fee bounds: SALES_REP/MANAGER cannot set adminFee/insuranceFee outside ±X% of default
   adminFeeBoundsPercent     Decimal? @default(20) @db.Decimal(5, 2)
   insuranceFeeBoundsPercent Decimal? @default(20) @db.Decimal(5, 2)
+  logoUrl                   String?
+  phone                     String?
 
   locations     Location[]
   accounts      Account[]

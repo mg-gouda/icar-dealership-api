@@ -22,6 +22,12 @@ import { PublicService } from './public.service';
 export class PublicController {
   constructor(private publicService: PublicService) {}
 
+  @Get('company-info')
+  @ApiOperation({ summary: 'Public company info (name, logo, phone) for B2C coming-soon / footer' })
+  getCompanyInfo() {
+    return this.publicService.getCompanyInfo();
+  }
+
   @Get('vehicles')
   @ApiOperation({ summary: 'List available vehicles for B2C site' })
   async listVehicles(@Query() q: any) {

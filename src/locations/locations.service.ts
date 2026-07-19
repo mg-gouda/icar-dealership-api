@@ -100,8 +100,17 @@ export class LocationsService {
         fiscalYearStartMonth: true,
         adminFeeBoundsPercent: true,
         insuranceFeeBoundsPercent: true,
+        logoUrl: true,
+        phone: true,
       },
     });
+  }
+
+  async getPublicCompanyInfo() {
+    const company = await this.prisma.company.findFirst({
+      select: { name: true, logoUrl: true, phone: true },
+    });
+    return company ?? { name: '', logoUrl: null, phone: null };
   }
 
   async updateCompanyProfile(
@@ -113,6 +122,8 @@ export class LocationsService {
       fiscalYearStartMonth: number;
       adminFeeBoundsPercent: number;
       insuranceFeeBoundsPercent: number;
+      logoUrl: string;
+      phone: string;
     }>,
     userId: string,
   ) {
