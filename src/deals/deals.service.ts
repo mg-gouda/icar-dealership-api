@@ -724,8 +724,13 @@ export class DealsService {
     });
     if (!doc) throw new NotFoundException(`Document ${docId} not found`);
 
+    const VALID_DOC_STATUSES = ['PENDING', 'SUBMITTED', 'VERIFIED', 'REJECTED'];
     const updateData: Record<string, any> = {};
-    if (data.status !== undefined) updateData.status = data.status;
+    if (data.status !== undefined) {
+      if (!VALID_DOC_STATUSES.includes(data.status))
+        throw new BadRequestException(`Invalid document status: ${data.status}. Valid: ${VALID_DOC_STATUSES.join(', ')}`);
+      updateData.status = data.status;
+    }
     if (data.fileUrl !== undefined) { updateData.fileUrl = data.fileUrl; updateData.uploadedAt = new Date(); }
     if (data.notes !== undefined) updateData.notes = data.notes;
 
