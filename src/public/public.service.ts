@@ -18,9 +18,9 @@ export class PublicService {
 
   async getCompanyInfo() {
     const company = await this.prisma.company.findFirst({
-      select: { name: true, logoUrl: true, phone: true },
+      select: { name: true, logoUrl: true, faviconUrl: true, phone: true },
     });
-    return company ?? { name: '', logoUrl: null, phone: null };
+    return company ?? { name: '', logoUrl: null, faviconUrl: null, phone: null };
   }
 
   // ── Public Vehicles ─────────────────────────────────────────────────────

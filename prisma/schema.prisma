@@ -304,6 +304,7 @@ model Company {
   adminFeeBoundsPercent     Decimal? @default(20) @db.Decimal(5, 2)
   insuranceFeeBoundsPercent Decimal? @default(20) @db.Decimal(5, 2)
   logoUrl                   String?
+  faviconUrl                String?
   phone                     String?
 
   locations     Location[]
