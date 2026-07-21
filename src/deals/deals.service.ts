@@ -414,7 +414,8 @@ export class DealsService {
       calculationMethod: string;
       totalPayable: number;
       monthlyInstallment?: number;
-      startDate: Date | string;
+      firstInstallmentDate?: Date | string;
+      startDate?: Date | string;
     },
     userId: string,
   ) {
@@ -457,14 +458,15 @@ export class DealsService {
       const r = annualRate / 12;
       const principalChunk = principal / n;
       let balance = principal;
+      const baseDate = data.firstInstallmentDate ?? data.startDate;
       for (let i = 0; i < n; i++) {
         const isLast = i === n - 1;
         const principalPortion = isLast
           ? Math.round(balance * 100) / 100
           : Math.round(principalChunk * 100) / 100;
         const interestPortion = Math.round(balance * r * 100) / 100;
-        const dueDate = new Date(data.startDate);
-        dueDate.setMonth(dueDate.getMonth() + i + 1);
+        const dueDate = new Date(baseDate as string);
+        dueDate.setMonth(dueDate.getMonth() + i);
         lines.push({ installmentNumber: i + 1, dueDate, principalPortion, interestPortion, totalDue: Math.round((principalPortion + interestPortion) * 100) / 100, status: 'PENDING', paidAmount: 0 });
         balance -= principalPortion;
       }
@@ -474,9 +476,10 @@ export class DealsService {
       // مركبة (A) — compound total: P × (1 + annual)^(months/12) ÷ n → flat equal payments
       const totalOwed = principal * Math.pow(1 + annualRate, n / 12);
       const totalInterest = totalOwed - principal;
+      const baseDate2 = data.firstInstallmentDate ?? data.startDate;
       for (let i = 0; i < n; i++) {
-        const dueDate = new Date(data.startDate);
-        dueDate.setMonth(dueDate.getMonth() + i + 1);
+        const dueDate = new Date(baseDate2 as string);
+        dueDate.setMonth(dueDate.getMonth() + i);
         const principalPortion = Math.round((principal / n) * 100) / 100;
         const interestPortion  = Math.round((totalInterest / n) * 100) / 100;
         lines.push({ installmentNumber: i + 1, dueDate, principalPortion, interestPortion, totalDue: Math.round((principalPortion + interestPortion) * 100) / 100, status: 'PENDING', paidAmount: 0 });
@@ -487,9 +490,10 @@ export class DealsService {
       // ثابتة (FLAT) — simple interest: P × annual × (months/12) spread evenly → flat equal payments
       const totalInterest = principal * annualRate * (n / 12);
       const totalOwed = principal + totalInterest;
+      const baseDate3 = data.firstInstallmentDate ?? data.startDate;
       for (let i = 0; i < n; i++) {
-        const dueDate = new Date(data.startDate);
-        dueDate.setMonth(dueDate.getMonth() + i + 1);
+        const dueDate = new Date(baseDate3 as string);
+        dueDate.setMonth(dueDate.getMonth() + i);
         const principalPortion = Math.round((principal / n) * 100) / 100;
         const interestPortion  = Math.round((totalInterest / n) * 100) / 100;
         lines.push({ installmentNumber: i + 1, dueDate, principalPortion, interestPortion, totalDue: Math.round((principalPortion + interestPortion) * 100) / 100, status: 'PENDING', paidAmount: 0 });
@@ -515,7 +519,7 @@ export class DealsService {
         calculationMethod: data.calculationMethod as any,
         totalPayable: Math.round(computedTotal * 100) / 100,
         monthlyInstallment: computedMonthly,
-        startDate: new Date(data.startDate),
+        startDate: new Date((data.firstInstallmentDate ?? data.startDate) as string),
         installments: {
           createMany: { data: lines },
         },
