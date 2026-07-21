@@ -567,6 +567,74 @@ export class DealsService {
     return this.findById(dealId);
   }
 
+  async getInstallmentLineReceipt(dealId: string, lineId: string) {
+    const line = await this.prisma.installmentLine.findUniqueOrThrow({
+      where: { id: lineId },
+      include: {
+        payment: {
+          include: {
+            partner: true,
+            journal: { include: { company: true, location: true } },
+          },
+        },
+        installmentPlan: {
+          include: {
+            deal: {
+              include: {
+                customer: { select: { name: true, phone: true, email: true, partnerId: true } },
+                vehicle: { select: { make: true, model: true, year: true, vin: true } },
+                location: { include: { company: true, journals: { take: 1, where: { type: { in: ['CASH', 'BANK'] as any } } } } },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (line.installmentPlan.dealId !== dealId) {
+      throw new BadRequestException('Installment line does not belong to this deal');
+    }
+    const deal = line.installmentPlan.deal;
+    const jeRef = `INST-${lineId.slice(-8).toUpperCase()}`;
+    const cashJournal = line.payment?.journal ?? deal.location.journals[0] ?? null;
+    const company = cashJournal?.company ?? deal.location.company ?? null;
+    const location = cashJournal?.location ?? deal.location ?? null;
+
+    return {
+      receiptNumber: line.payment?.number ?? `REC-${(line.paidDate ?? line.dueDate).toISOString().slice(0, 10).replace(/-/g, '')}-${lineId.slice(-6).toUpperCase()}`,
+      jeRef,
+      date: line.paidDate ?? line.dueDate,
+      amount: Number(line.totalDue),
+      principalPortion: Number(line.principalPortion),
+      interestPortion: Number(line.interestPortion),
+      installmentNumber: line.installmentNumber,
+      method: 'CASH',
+      customer: {
+        name: line.payment?.partner?.name ?? deal.customer?.name ?? '',
+        phone: deal.customer?.phone ?? null,
+        email: deal.customer?.email ?? null,
+      },
+      vehicle: deal.vehicle ? {
+        make: deal.vehicle.make,
+        model: deal.vehicle.model,
+        year: deal.vehicle.year,
+        vin: deal.vehicle.vin ?? null,
+      } : null,
+      company: company ? {
+        name: company.name,
+        address: company.address ?? null,
+        phone: company.phone ?? null,
+        taxId: company.taxId ?? null,
+      } : null,
+      location: location ? {
+        name: (location as any).name ?? null,
+        address: (location as any).address ?? null,
+        city: (location as any).city ?? null,
+        phone: (location as any).phone ?? null,
+      } : null,
+      paymentId: line.paymentId ?? null,
+    };
+  }
+
   async sendInstallmentReminder(dealId: string, lineId: string) {
     const line = await this.prisma.installmentLine.findUniqueOrThrow({
       where: { id: lineId },

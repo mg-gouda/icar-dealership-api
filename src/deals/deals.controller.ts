@@ -188,6 +188,12 @@ export class DealsController {
     return this.svc.sendInstallmentReminder(id, lineId);
   }
 
+  @Get(':id/installment-plan/lines/:lineId/receipt')
+  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  installmentReceipt(@Param('id') id: string, @Param('lineId') lineId: string) {
+    return this.svc.getInstallmentLineReceipt(id, lineId);
+  }
+
   // ── Bank financing disbursement ───────────────────────────────────────────
 
   @Post(':id/bank-disbursement')
