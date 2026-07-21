@@ -447,6 +447,7 @@ export class PostingService {
                 location: {
                   include: { journals: true, analyticAccount: true },
                 },
+                customer: { select: { id: true, name: true, phone: true, email: true, partnerId: true } },
               },
             },
           },
@@ -518,12 +519,50 @@ export class PostingService {
         },
       });
 
+      // ponytail: auto-create Partner from customer User if missing so Payment can be linked
+      const customer = deal.customer;
+      let partnerId = customer?.partnerId ?? null;
+      if (customer && !partnerId) {
+        const created = await tx.partner.create({
+          data: {
+            type: 'CUSTOMER',
+            name: customer.name,
+            email: customer.email ?? undefined,
+            phone: customer.phone ?? undefined,
+            user: { connect: { id: customer.id } },
+          },
+        });
+        partnerId = created.id;
+      }
+
+      // Create a Payment record so the collection appears in Finance → Payments and can produce a receipt
+      let paymentId: string | null = null;
+      if (partnerId) {
+        const recNum = `REC-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${installmentLineId.slice(-6).toUpperCase()}`;
+        const payment = await tx.payment.create({
+          data: {
+            number: recNum,
+            type: 'CUSTOMER_PAYMENT',
+            status: 'POSTED',
+            partnerId,
+            journalId: cashJournal.id,
+            date: now,
+            amount: totalDue,
+            method: 'CASH',
+            memo: `قسط رقم ${line.installmentNumber} — Installment No. ${line.installmentNumber}`,
+            dealId: deal.id,
+          },
+        });
+        paymentId = payment.id;
+      }
+
       await tx.installmentLine.update({
         where: { id: installmentLineId },
         data: {
           status: 'PAID',
           paidAmount: Number(line.totalDue),
           paidDate: now,
+          ...(paymentId && { paymentId }),
         },
       });
 

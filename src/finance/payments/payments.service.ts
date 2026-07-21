@@ -79,9 +79,35 @@ export class PaymentsService {
       where: { id },
       include: {
         partner: true,
-        journal: true,
+        journal: {
+          include: {
+            company: true,
+            location: true,
+          },
+        },
         allocations: {
           include: { invoice: { include: { lines: true } } },
+        },
+        journalEntry: { include: { lines: { include: { account: true } } } },
+        installmentLine: {
+          include: {
+            installmentPlan: {
+              include: {
+                deal: {
+                  include: {
+                    customer: { select: { name: true, phone: true, email: true } },
+                    vehicle: { select: { make: true, model: true, year: true, vin: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        deal: {
+          include: {
+            customer: { select: { name: true, phone: true, email: true } },
+            vehicle: { select: { make: true, model: true, year: true, vin: true } },
+          },
         },
       },
     });

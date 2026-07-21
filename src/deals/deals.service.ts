@@ -161,7 +161,12 @@ export class DealsService {
         salesRep: { select: { id: true, name: true } },
         location: true,
         installmentPlan: {
-          include: { installments: { orderBy: { dueDate: 'asc' } } },
+          include: {
+            installments: {
+              orderBy: { dueDate: 'asc' },
+              include: { payment: { select: { id: true } } },
+            },
+          },
         },
         financeApplication: {
           include: { requiredDocuments: true, bankApproval: true },

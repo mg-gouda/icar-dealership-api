@@ -44,8 +44,14 @@ export class PaymentsController {
   }
 
   @Get(':id')
-  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN', 'MANAGER')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN', 'MANAGER', 'SALES_REP')
   findById(@Param('id') id: string) {
+    return this.svc.findById(id);
+  }
+
+  @Get(':id/receipt')
+  @Roles('FINANCE', 'ADMIN', 'SUPER_ADMIN', 'MANAGER', 'SALES_REP')
+  getReceipt(@Param('id') id: string) {
     return this.svc.findById(id);
   }
 
