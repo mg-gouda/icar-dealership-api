@@ -595,9 +595,9 @@ export class DealsService {
     }
     const deal = line.installmentPlan.deal;
     const jeRef = `INST-${lineId.slice(-8).toUpperCase()}`;
-    const cashJournal = line.payment?.journal ?? deal.location.journals[0] ?? null;
-    const company = cashJournal?.company ?? deal.location.company ?? null;
-    const location = cashJournal?.location ?? deal.location ?? null;
+    // payment?.journal has company+location includes; deal.location already has company
+    const company = (line.payment?.journal as any)?.company ?? deal.location.company ?? null;
+    const location = (line.payment?.journal as any)?.location ?? deal.location ?? null;
 
     return {
       receiptNumber: line.payment?.number ?? `REC-${(line.paidDate ?? line.dueDate).toISOString().slice(0, 10).replace(/-/g, '')}-${lineId.slice(-6).toUpperCase()}`,
