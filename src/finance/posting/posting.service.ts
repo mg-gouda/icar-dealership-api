@@ -206,11 +206,19 @@ export class PostingService {
 
       // 3. Create DRAFT invoice for the deal (finance reviews + posts)
       // FIX C5: was POSTED → now DRAFT so finance team must explicitly post
-      const partnerId = deal.customer.partnerId;
+      let partnerId = deal.customer.partnerId;
       if (!partnerId) {
-        throw new BadRequestException(
-          'Customer has no linked Partner record — cannot create invoice. Link a Partner to the customer first.',
-        );
+        // ponytail: auto-create Partner from User data so finalization never blocks on admin setup
+        const created = await tx.partner.create({
+          data: {
+            type: 'CUSTOMER',
+            name: deal.customer.name,
+            email: deal.customer.email ?? undefined,
+            phone: deal.customer.phone ?? undefined,
+            user: { connect: { id: deal.customer.id } },
+          },
+        });
+        partnerId = created.id;
       }
 
       // Lookup VAT tax for vehicle sale line
