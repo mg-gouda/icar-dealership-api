@@ -440,82 +440,67 @@ export class DealsService {
 
     const principal = data.principalAmount;
     const n = data.durationMonths;
-    const monthlyRate = data.interestRate / 12 / 100; // annual rate -> monthly decimal
+    const annualRate = data.interestRate / 100;
 
-    if (data.calculationMethod === 'AMORTIZING' && monthlyRate > 0) {
-      // ponytail: reducing-balance PMT formula
-      const pmt =
-        (principal * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -n));
+    const fixResidue = (arr: typeof lines, totalPrincipal: number, totalPayable: number) => {
+      if (!arr.length) return;
+      const sumP = arr.slice(0, -1).reduce((s, l) => s + l.principalPortion, 0);
+      const sumI = arr.slice(0, -1).reduce((s, l) => s + l.interestPortion, 0);
+      const last = arr[arr.length - 1];
+      last.principalPortion = Math.round((totalPrincipal - sumP) * 100) / 100;
+      last.interestPortion  = Math.round((totalPayable - totalPrincipal - sumI) * 100) / 100;
+      last.totalDue = Math.round((last.principalPortion + last.interestPortion) * 100) / 100;
+    };
+
+    if (data.calculationMethod === 'AMORTIZING') {
+      // متناقصة — reducing balance: simple monthly rate = annual/12
+      const r = annualRate / 12;
+      const pmt = r > 0 ? (principal * r) / (1 - Math.pow(1 + r, -n)) : principal / n;
       let balance = principal;
-
       for (let i = 0; i < n; i++) {
-        const interestPortion = Math.round(balance * monthlyRate * 100) / 100;
-        const principalPortion =
-          Math.round((pmt - interestPortion) * 100) / 100;
-        // F-10: due date starts 1 month after startDate
+        const interestPortion   = Math.round(balance * r * 100) / 100;
+        const principalPortion  = Math.round((pmt - interestPortion) * 100) / 100;
         const dueDate = new Date(data.startDate);
         dueDate.setMonth(dueDate.getMonth() + i + 1);
-        lines.push({
-          installmentNumber: i + 1,
-          dueDate,
-          principalPortion,
-          interestPortion,
-          totalDue:
-            Math.round((principalPortion + interestPortion) * 100) / 100,
-          status: 'PENDING',
-          paidAmount: 0,
-        });
+        lines.push({ installmentNumber: i + 1, dueDate, principalPortion, interestPortion, totalDue: Math.round((principalPortion + interestPortion) * 100) / 100, status: 'PENDING', paidAmount: 0 });
         balance -= principalPortion;
       }
+      fixResidue(lines, principal, data.totalPayable);
 
-      // F-9: Last line absorbs rounding residual for both principal and interest
-      if (lines.length > 0) {
-        const prevPrincipal = lines.slice(0, -1).reduce((s, l) => s + l.principalPortion, 0);
-        const prevInterest = lines.slice(0, -1).reduce((s, l) => s + l.interestPortion, 0);
-        const totalInterest = data.totalPayable - principal;
-        const last = lines[lines.length - 1];
-        last.principalPortion = Math.round((principal - prevPrincipal) * 100) / 100;
-        last.interestPortion = Math.round((totalInterest - prevInterest) * 100) / 100;
-        last.totalDue = Math.round((last.principalPortion + last.interestPortion) * 100) / 100;
-      }
-    } else {
-      // Flat calc -- even split of principal/interest across months
-      const totalInterest = data.totalPayable - principal;
+    } else if (data.calculationMethod === 'COMPOUND') {
+      // مركبة — compound: effective monthly rate = (1 + annual)^(1/12) - 1
+      const r = Math.pow(1 + annualRate, 1 / 12) - 1;
+      const pmt = r > 0 ? (principal * r) / (1 - Math.pow(1 + r, -n)) : principal / n;
+      let balance = principal;
       for (let i = 0; i < n; i++) {
-        // F-10: due date starts 1 month after startDate
+        const interestPortion   = Math.round(balance * r * 100) / 100;
+        const principalPortion  = Math.round((pmt - interestPortion) * 100) / 100;
         const dueDate = new Date(data.startDate);
         dueDate.setMonth(dueDate.getMonth() + i + 1);
-        // F-9: round each line to 2 decimal places
+        lines.push({ installmentNumber: i + 1, dueDate, principalPortion, interestPortion, totalDue: Math.round((principalPortion + interestPortion) * 100) / 100, status: 'PENDING', paidAmount: 0 });
+        balance -= principalPortion;
+      }
+      fixResidue(lines, principal, data.totalPayable);
+
+    } else {
+      // ثابته (FLAT) — flat rate: total interest = principal × annual × years, even split
+      const totalInterest = data.totalPayable - principal;
+      for (let i = 0; i < n; i++) {
+        const dueDate = new Date(data.startDate);
+        dueDate.setMonth(dueDate.getMonth() + i + 1);
         const principalPortion = Math.round((principal / n) * 100) / 100;
-        const interestPortion = Math.round((totalInterest / n) * 100) / 100;
-        const totalDue = Math.round((principalPortion + interestPortion) * 100) / 100;
-        lines.push({
-          installmentNumber: i + 1,
-          dueDate,
-          principalPortion,
-          interestPortion,
-          totalDue,
-          status: 'PENDING',
-          paidAmount: 0,
-        });
+        const interestPortion  = Math.round((totalInterest / n) * 100) / 100;
+        lines.push({ installmentNumber: i + 1, dueDate, principalPortion, interestPortion, totalDue: Math.round((principalPortion + interestPortion) * 100) / 100, status: 'PENDING', paidAmount: 0 });
       }
-      // F-9: Last line absorbs rounding residual
-      if (lines.length > 0) {
-        const prevPrincipal = lines.slice(0, -1).reduce((s, l) => s + l.principalPortion, 0);
-        const prevInterest = lines.slice(0, -1).reduce((s, l) => s + l.interestPortion, 0);
-        const last = lines[lines.length - 1];
-        last.principalPortion = Math.round((principal - prevPrincipal) * 100) / 100;
-        last.interestPortion = Math.round((totalInterest - prevInterest) * 100) / 100;
-        last.totalDue = Math.round((last.principalPortion + last.interestPortion) * 100) / 100;
-      }
+      fixResidue(lines, principal, data.totalPayable);
     }
 
     // ponytail: compute totals from generated lines for accuracy
     const computedTotal = lines.reduce((s, l) => s + l.totalDue, 0);
     const computedMonthly =
-      data.calculationMethod === 'AMORTIZING'
-        ? undefined // varies per line
-        : (lines[0]?.totalDue ?? 0);
+      data.calculationMethod === 'FLAT'
+        ? (lines[0]?.totalDue ?? 0)
+        : undefined; // varies per line for COMPOUND/AMORTIZING
 
     const plan = await this.prisma.installmentPlan.create({
       data: {
@@ -650,6 +635,7 @@ export class DealsService {
           bankBranch: data.bankBranch,
           termMonths: data.termMonths ? Number(data.termMonths) : undefined,
           apr: data.apr,
+          interestType: data.interestType ?? undefined,
           monthlyPayment: data.monthlyPayment,
           requiredDocuments: data.documents?.length
             ? {
@@ -668,6 +654,7 @@ export class DealsService {
           bankBranch: data.bankBranch,
           termMonths: data.termMonths ? Number(data.termMonths) : undefined,
           apr: data.apr,
+          interestType: data.interestType ?? undefined,
           monthlyPayment: data.monthlyPayment,
         },
         include: { requiredDocuments: true, bankApproval: true },
@@ -690,6 +677,7 @@ export class DealsService {
         creditScoreRange: data.creditScoreRange,
         termMonths: data.termMonths ? Number(data.termMonths) : undefined,
         apr: data.apr,
+        interestType: data.interestType ?? undefined,
         monthlyPayment: data.monthlyPayment,
         rejectionReason: data.rejectionReason,
       },

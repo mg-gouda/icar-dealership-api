@@ -187,6 +187,7 @@ enum BankDocumentStatus {
 
 enum InstallmentCalculationMethod {
   FLAT
+  COMPOUND
   AMORTIZING
 }
 
@@ -737,6 +738,7 @@ model FinanceApplication {
   lenderName       String?
   termMonths       Int?
   apr              Decimal? @db.Decimal(5, 2)
+  interestType     InstallmentCalculationMethod?
   monthlyPayment   Decimal? @db.Decimal(14, 2)
 
   // --- Egypt bank financing ---
