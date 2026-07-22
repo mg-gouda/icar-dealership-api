@@ -60,62 +60,7 @@ export class VehiclesController {
     });
   }
 
-  @Get(':id')
-  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
-  async findOne(@Param('id') id: string, @Request() req: any) {
-    const vehicle = await this.vehiclesService.findById(id);
-    // SEC-3: enforce location scope for non-ADMIN per-item access
-    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role) && vehicle.locationId !== req.user.locationId) {
-      throw new ForbiddenException('Access to this location is not permitted.');
-    }
-    return vehicle;
-  }
-
-  @Post()
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  @LocationScope()
-  create(@Body() body: CreateVehicleDto) {
-    return this.vehiclesService.create(body);
-  }
-
-  @Patch(':id')
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  update(@Param('id') id: string, @Body() body: UpdateVehicleDto, @Request() req: any) {
-    assertFieldWriteAccess('Vehicle', body, req.user.role);
-    return this.vehiclesService.update(id, body);
-  }
-
-  @Post(':id/images')
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  addImage(
-    @Param('id') id: string,
-    @Body() body: { url: string; order?: number },
-  ) {
-    return this.vehiclesService.addImage(id, body);
-  }
-
-  @Patch(':id/images/:imageId')
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  updateImage(
-    @Param('id') id: string,
-    @Param('imageId') imageId: string,
-    @Body() body: { order?: number },
-  ) {
-    return this.vehiclesService.updateImage(id, imageId, body);
-  }
-
-  @Delete(':id/images/:imageId')
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  deleteImage(@Param('id') id: string, @Param('imageId') imageId: string) {
-    return this.vehiclesService.deleteImage(id, imageId);
-  }
-
-  @Post('bulk-import')
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  bulkImport(@Body() body: { csv: string }) {
-    return this.vehiclesService.bulkImport(body.csv);
-  }
-
+  // ponytail: static routes MUST come before @Get(':id') or NestJS matches id first
   @Get('decode-vin')
   @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN')
   async decodeVin(@Query('vin') vin: string) {
@@ -149,5 +94,66 @@ export class VehiclesController {
     } catch {
       return { vin, decoded: null, error: 'NHTSA API unreachable' };
     }
+  }
+
+  @Get(':id')
+  @Roles('SALES_REP', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPER_ADMIN')
+  async findOne(@Param('id') id: string, @Request() req: any) {
+    const vehicle = await this.vehiclesService.findById(id);
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role) && vehicle.locationId !== req.user.locationId) {
+      throw new ForbiddenException('Access to this location is not permitted.');
+    }
+    return vehicle;
+  }
+
+  @Get(':id/price-history')
+  @Roles('SALES_REP', 'MANAGER', 'ADMIN', 'SUPER_ADMIN', 'FINANCE')
+  getPriceHistory(@Param('id') id: string) {
+    return this.vehiclesService.getPriceHistory(id);
+  }
+
+  @Post()
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  @LocationScope()
+  create(@Body() body: CreateVehicleDto) {
+    return this.vehiclesService.create(body);
+  }
+
+  @Post('bulk-import')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  bulkImport(@Body() body: { csv: string }) {
+    return this.vehiclesService.bulkImport(body.csv);
+  }
+
+  @Patch(':id')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  update(@Param('id') id: string, @Body() body: UpdateVehicleDto, @Request() req: any) {
+    assertFieldWriteAccess('Vehicle', body, req.user.role);
+    return this.vehiclesService.update(id, body, req.user.name ?? req.user.email);
+  }
+
+  @Post(':id/images')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  addImage(
+    @Param('id') id: string,
+    @Body() body: { url: string; order?: number },
+  ) {
+    return this.vehiclesService.addImage(id, body);
+  }
+
+  @Patch(':id/images/:imageId')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  updateImage(
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Body() body: { order?: number },
+  ) {
+    return this.vehiclesService.updateImage(id, imageId, body);
+  }
+
+  @Delete(':id/images/:imageId')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  deleteImage(@Param('id') id: string, @Param('imageId') imageId: string) {
+    return this.vehiclesService.deleteImage(id, imageId);
   }
 }
