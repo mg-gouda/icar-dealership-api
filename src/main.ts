@@ -63,11 +63,12 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  // ponytail: block B2C ports from /finance/** — admin-only endpoints
-  const adminOrigins = ['http://localhost:3001', ...(process.env.ADMIN_ORIGINS ?? '').split(',').filter(Boolean)];
+  // ponytail: block only B2C origins from /finance/** — admin portal + localhost always allowed
+  const b2cOrigins = (process.env.B2C_ORIGINS ?? 'https://eieegypt.com,https://www.eieegypt.com')
+    .split(',').map((o) => o.trim()).filter(Boolean);
   app.use((req: any, res: any, next: any) => {
     const origin = req.headers['origin'] as string | undefined;
-    if (origin && !adminOrigins.includes(origin) && req.path.startsWith('/api/v1/finance')) {
+    if (origin && b2cOrigins.includes(origin) && req.path.startsWith('/api/v1/finance')) {
       return res.status(403).json({ message: 'Finance endpoints not accessible from this origin' });
     }
     next();
