@@ -588,6 +588,7 @@ model Vehicle {
   serviceOrders          ServiceOrder[]
   importShipmentVehicles ImportShipmentVehicle[]
   floorPlanNote          FloorPlanNote?
+  priceLogs              VehiclePriceLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -595,6 +596,19 @@ model Vehicle {
   @@index([locationId])
   @@index([status])
   @@index([accreditedDealerId])
+}
+
+model VehiclePriceLog {
+  id            String   @id @default(cuid())
+  vehicleId     String
+  vehicle       Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  oldPrice      Decimal  @db.Decimal(14, 2)
+  newPrice      Decimal  @db.Decimal(14, 2)
+  note          String?
+  changedByName String?
+  changedAt     DateTime @default(now())
+
+  @@index([vehicleId])
 }
 
 model VehicleImage {
@@ -1979,6 +1993,7 @@ model LookupItem {
   category  String // car_make | car_color | body_type | fuel_type | transmission
   value     String
   label     String
+  labelAr   String?
   sortOrder Int     @default(0)
   active    Boolean @default(true)
 

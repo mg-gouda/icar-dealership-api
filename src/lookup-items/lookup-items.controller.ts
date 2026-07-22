@@ -22,7 +22,7 @@ export class LookupItemsController {
 
   @Post()
   @Roles('ADMIN', 'SUPER_ADMIN')
-  create(@Request() req: any, @Body() body: { category: string; value: string; label: string; sortOrder?: number }) {
+  create(@Request() req: any, @Body() body: { category: string; value: string; label: string; labelAr?: string; sortOrder?: number }) {
     return this.svc.create(req.user.companyId, body, req.user.id);
   }
 
@@ -31,7 +31,7 @@ export class LookupItemsController {
   update(
     @Param('id') id: string,
     @Request() req: any,
-    @Body() body: { label?: string; value?: string; sortOrder?: number; active?: boolean },
+    @Body() body: { label?: string; labelAr?: string; value?: string; sortOrder?: number; active?: boolean },
   ) {
     return this.svc.update(id, req.user.companyId, body, req.user.id);
   }
