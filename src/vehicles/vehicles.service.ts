@@ -126,9 +126,15 @@ export class VehiclesService {
     return vehicle;
   }
 
-  async update(id: string, dto: any) {
-    await this.findById(id);
+  async update(id: string, dto: any, changedByName?: string) {
+    const existing = await this.findById(id);
     const { data, features, licenseExpiryDate } = this.prepareVehicleData(dto);
+
+    const oldPrice = Number(existing.salePrice ?? existing.price);
+    const rawNew = data.price !== undefined ? data.price : data.salePrice;
+    const newPrice = rawNew !== undefined ? Number(rawNew) : null;
+    const priceChanged = newPrice !== null && newPrice !== oldPrice;
+
     return this.prisma.vehicle.update({
       where: { id },
       data: {
@@ -142,8 +148,28 @@ export class VehiclesService {
               },
             }
           : {}),
+        ...(priceChanged
+          ? {
+              priceLogs: {
+                create: {
+                  oldPrice,
+                  newPrice: newPrice!,
+                  note: dto.priceNote ?? null,
+                  changedByName: changedByName ?? null,
+                },
+              },
+            }
+          : {}),
       },
       include: { images: true, features: true },
+    });
+  }
+
+  async getPriceHistory(vehicleId: string) {
+    await this.findById(vehicleId);
+    return this.prisma.vehiclePriceLog.findMany({
+      where: { vehicleId },
+      orderBy: { changedAt: 'desc' },
     });
   }
 
