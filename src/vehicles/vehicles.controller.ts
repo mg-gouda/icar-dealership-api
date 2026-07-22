@@ -156,4 +156,10 @@ export class VehiclesController {
   deleteImage(@Param('id') id: string, @Param('imageId') imageId: string) {
     return this.vehiclesService.deleteImage(id, imageId);
   }
+
+  @Delete(':id')
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  deleteVehicle(@Param('id') id: string) {
+    return this.vehiclesService.deleteVehicle(id);
+  }
 }

@@ -196,6 +196,19 @@ export class VehiclesService {
     });
   }
 
+  async deleteVehicle(id: string) {
+    const vehicle = await this.findById(id);
+    const dealsCount = await this.prisma.deal.count({ where: { vehicleId: id } });
+    if (dealsCount > 0) {
+      throw new Error(`Cannot delete vehicle with ${dealsCount} associated deal(s). Archive it instead.`);
+    }
+    await this.prisma.vehicleImage.deleteMany({ where: { vehicleId: id } });
+    await this.prisma.vehicleFeature.deleteMany({ where: { vehicleId: id } });
+    await this.prisma.vehiclePriceLog.deleteMany({ where: { vehicleId: id } });
+    await this.prisma.vehicle.delete({ where: { id } });
+    return { deleted: true, id: vehicle.id };
+  }
+
   async bulkImport(
     csvText: string,
   ): Promise<{ created: number; errors: { row: number; error: string }[] }> {
