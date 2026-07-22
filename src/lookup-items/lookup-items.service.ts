@@ -6,8 +6,9 @@ const DEFAULT_LOOKUPS: Record<string, string[]> = {
   car_color:    ['White', 'Black', 'Silver', 'Gray', 'Red', 'Blue', 'Green', 'Brown', 'Gold', 'Beige', 'Pearl'],
   body_type:    ['Sedan', 'SUV', 'Hatchback', 'Pickup', 'Van', 'Coupe', 'Convertible', 'Wagon'],
   fuel_type:    ['Petrol', 'Diesel', 'Hybrid', 'Electric', 'LPG'],
-  transmission: ['Manual', 'Automatic', 'CVT'],
-  gear_type:    ['CVT', 'DCT', 'AMT', 'Torque Converter', 'Dual Clutch', 'Planetary', 'Sequential', 'Tiptronic'],
+  transmission:    ['Manual', 'Automatic', 'CVT'],
+  gear_type:       ['CVT', 'DCT', 'AMT', 'Torque Converter', 'Dual Clutch', 'Planetary', 'Sequential', 'Tiptronic'],
+  vehicle_feature: ['Cruise Control', 'Apple CarPlay', 'Android Auto', 'Reverse Camera', 'Blind Spot Monitor', 'Lane Departure Warning', 'Sunroof', 'Heated Seats', 'Keyless Entry', 'Push Start', 'Navigation', 'Parking Sensors'],
 };
 
 @Injectable()
