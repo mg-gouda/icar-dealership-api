@@ -35,7 +35,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
-      message = exception.getResponse();
+      const raw = exception.getResponse();
+      message = typeof raw === 'string' ? raw : ((raw as any).message ?? (raw as any).error ?? 'Request failed');
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
       message = 'Internal server error';
