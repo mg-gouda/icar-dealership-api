@@ -14,25 +14,27 @@ export class CarMakesService {
   }
 
   async createMake(companyId: string, data: { name: string; slug: string; logoUrl?: string }) {
+    const name = data.name.toUpperCase();
     const exists = await this.prisma.carMake.findUnique({
-      where: { companyId_name: { companyId, name: data.name } },
+      where: { companyId_name: { companyId, name } },
     });
-    if (exists) throw new ConflictException(`Make "${data.name}" already exists`);
+    if (exists) throw new ConflictException(`Make "${name}" already exists`);
     return this.prisma.carMake.create({
-      data: { companyId, name: data.name, slug: data.slug, logoUrl: data.logoUrl ?? null },
+      data: { companyId, name, slug: data.slug, logoUrl: data.logoUrl ?? null },
     });
   }
 
   async updateMake(id: string, companyId: string, data: { name?: string; logoUrl?: string; isActive?: boolean }) {
     const make = await this.prisma.carMake.findFirst({ where: { id, companyId } });
     if (!make) throw new NotFoundException('Car make not found');
-    if (data.name && data.name !== make.name) {
+    const updateData = { ...data, ...(data.name ? { name: data.name.toUpperCase() } : {}) };
+    if (updateData.name && updateData.name !== make.name) {
       const dup = await this.prisma.carMake.findUnique({
-        where: { companyId_name: { companyId, name: data.name } },
+        where: { companyId_name: { companyId, name: updateData.name } },
       });
-      if (dup) throw new ConflictException(`Make "${data.name}" already exists`);
+      if (dup) throw new ConflictException(`Make "${updateData.name}" already exists`);
     }
-    return this.prisma.carMake.update({ where: { id }, data });
+    return this.prisma.carMake.update({ where: { id }, data: updateData });
   }
 
   async listModels(makeId: string, companyId: string) {
